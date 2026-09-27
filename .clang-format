@@ -1,0 +1,15 @@
+# Whiteboard project clang-format — contract file (Wave 0). Do not change
+# per-package; overrides are not permitted.
+BasedOnStyle: Google
+Language: Cpp
+Standard: c++20
+ColumnLimit: 100
+IndentWidth: 4
+AccessModifierOffset: -2
+PointerAlignment: Left
+DerivePointerAlignment: false
+IncludeBlocks: Preserve
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+SortIncludes: CaseSensitive

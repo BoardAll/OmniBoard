@@ -1,0 +1,14 @@
+{
+  "id": "element-text-1",
+  "pageId": "page-1",
+  "type": "text",
+  "position": { "x": 320, "y": 80 },
+  "size": { "width": 240, "height": 40 },
+  "rotation": 0,
+  "opacity": 1.0,
+  "zIndex": 1,
+  "locked": false,
+  "hidden": false,
+  "style": { "fontSize": 16, "color": "#1A1D21" },
+  "data": { "text": "正文文本" }
+}

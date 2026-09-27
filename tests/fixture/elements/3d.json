@@ -1,0 +1,26 @@
+{
+  "id": "element-3d-1",
+  "pageId": "page-1",
+  "type": "render3d",
+  "position": { "x": 480, "y": 260 },
+  "size": { "width": 480, "height": 320 },
+  "rotation": 0,
+  "opacity": 1.0,
+  "zIndex": 5,
+  "locked": false,
+  "hidden": false,
+  "style": {},
+  "data": {
+    "geometry": "box",
+    "material": { "metallic": 0.2, "baseColor": "#4C88FF" },
+    "lights": [
+      { "type": "ambient", "intensity": 1.0 },
+      {
+        "type": "point",
+        "color": "#00FF00",
+        "intensity": 2.0,
+        "position": { "x": 10, "y": 20, "z": 30 }
+      }
+    ]
+  }
+}

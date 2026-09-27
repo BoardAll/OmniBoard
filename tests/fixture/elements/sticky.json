@@ -1,0 +1,14 @@
+{
+  "id": "element-sticky-1",
+  "pageId": "page-1",
+  "type": "sticky",
+  "position": { "x": 120, "y": 80 },
+  "size": { "width": 160, "height": 120 },
+  "rotation": 0,
+  "opacity": 1.0,
+  "zIndex": 0,
+  "locked": false,
+  "hidden": false,
+  "style": { "fill": "#FFF3BF" },
+  "data": { "text": "便签：记录想法" }
+}

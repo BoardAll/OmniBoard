@@ -1,0 +1,6 @@
+# macOS 平台插件分析配置：继承 Monorepo 根 analysis_options.yaml（Wave 0 契约）。
+analyzer:
+  exclude:
+    - build/**
+    - macos/**
+include: ../../analysis_options.yaml

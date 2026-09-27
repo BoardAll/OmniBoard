@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://whiteboard.local/schema/element.schema.json",
+  "title": "wb element",
+  "description": "CONTRACT (Wave 0). Element payload for wb_element_create/update per 《C++ 核心引擎接口设计》 §8.3 and 模块文档.",
+  "type": "object",
+  "required": ["type"],
+  "properties": {
+    "id": { "type": "string" },
+    "pageId": { "type": "string" },
+    "type": {
+      "type": "string",
+      "enum": [
+        "sticky",
+        "text",
+        "shape",
+        "connector",
+        "image",
+        "frame",
+        "mindmap",
+        "table",
+        "flowchart",
+        "function",
+        "render3d",
+        "render2d",
+        "document",
+        "annotation",
+        "group"
+      ]
+    },
+    "name": { "type": "string" },
+    "position": { "$ref": "#/$defs/Point" },
+    "size": { "$ref": "#/$defs/Size" },
+    "rotation": { "type": "number", "default": 0 },
+    "opacity": { "type": "number", "minimum": 0, "maximum": 1, "default": 1 },
+    "zIndex": { "type": "integer", "default": 0 },
+    "locked": { "type": "boolean", "default": false },
+    "hidden": { "type": "boolean", "default": false },
+    "groupId": { "type": "string" },
+    "style": { "type": "object" },
+    "data": { "type": "object" },
+    "createdAt": { "type": "integer" },
+    "updatedAt": { "type": "integer" },
+    "createdBy": { "type": "string" },
+    "updatedBy": { "type": "string" }
+  },
+  "$defs": {
+    "Point": {
+      "type": "object",
+      "required": ["x", "y"],
+      "properties": {
+        "x": { "type": "number" },
+        "y": { "type": "number" }
+      },
+      "additionalProperties": false
+    },
+    "Size": {
+      "type": "object",
+      "required": ["width", "height"],
+      "properties": {
+        "width": { "type": "number", "minimum": 0 },
+        "height": { "type": "number", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "Connector": {
+      "type": "object",
+      "description": "data payload when type == connector, per §8.4",
+      "required": ["fromElementId", "toElementId"],
+      "properties": {
+        "fromElementId": { "type": "string" },
+        "toElementId": { "type": "string" },
+        "fromAnchor": { "type": "string" },
+        "toAnchor": { "type": "string" },
+        "style": { "type": "string", "enum": ["straight", "orthogonal", "curved"] },
+        "arrowStart": { "type": "string", "enum": ["none", "solid", "hollow", "open"] },
+        "arrowEnd": { "type": "string", "enum": ["none", "solid", "hollow", "open"] },
+        "label": { "type": "string" },
+        "waypoints": { "type": "array", "items": { "$ref": "#/$defs/Point" } },
+        "autoRoute": { "type": "boolean", "default": true }
+      }
+    }
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "id": "element-function-1",
+  "pageId": "page-1",
+  "type": "function",
+  "position": { "x": 80, "y": 520 },
+  "size": { "width": 400, "height": 300 },
+  "rotation": 0,
+  "opacity": 1.0,
+  "zIndex": 6,
+  "locked": false,
+  "hidden": false,
+  "style": {},
+  "data": {
+    "expressions": [
+      { "id": "expr-1", "expression": "y = sin(x)", "visible": true },
+      { "id": "expr-2", "expression": "x^2 + 1", "visible": true }
+    ],
+    "viewport": { "xMin": -10, "xMax": 10, "yMin": -10, "yMax": 10 },
+    "samples": 256
+  }
+}

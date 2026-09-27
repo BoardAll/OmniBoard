@@ -1,0 +1,22 @@
+﻿api
+guides
+modules
+AI 助手与 MCP 设计.md
+C++ 核心引擎接口设计.md
+Flutter + C++ 工程结构设计.md
+MCP_Server详细设计.md
+OpenAPI规范.md
+Web 端方案设计Flutter Web + WASM.md
+主题与背景系统设计.md
+互动白板预留接口设计.md
+可扩展工具栏设计.md
+安全与合规设计.md
+左侧栏与页面管理设计.md
+构建打包与发布设计.md
+流程图模块设计.md
+测试方案设计.md
+渲染引擎设计.md
+用户手册与帮助文档设计.md
+白板软件设计文档.md
+透明批注模式技术方案.md
+齿轮圆盘交互详细设计.md

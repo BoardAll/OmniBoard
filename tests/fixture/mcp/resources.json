@@ -1,0 +1,46 @@
+{
+  "resources": [
+    {
+      "uri": "whiteboard://boards",
+      "name": "白板目录",
+      "description": "全部白板列表",
+      "mimeType": "application/json"
+    },
+    {
+      "uri": "whiteboard://boards/board-1",
+      "name": "白板详情",
+      "description": "白板元数据与页面摘要",
+      "mimeType": "application/json"
+    },
+    {
+      "uri": "whiteboard://boards/board-1/pages",
+      "name": "页面列表",
+      "description": "该白板下全部页面",
+      "mimeType": "application/json"
+    },
+    {
+      "uri": "whiteboard://boards/board-1/pages/page-1",
+      "name": "页面内容",
+      "description": "单页元素快照",
+      "mimeType": "application/json"
+    },
+    {
+      "uri": "whiteboard://boards/board-1/pages/page-1/elements",
+      "name": "页面元素",
+      "description": "单页元素数组（按 z 序）",
+      "mimeType": "application/json"
+    },
+    {
+      "uri": "whiteboard://boards/board-1/pages/page-2",
+      "name": "页面内容",
+      "description": "单页元素快照",
+      "mimeType": "application/json"
+    },
+    {
+      "uri": "whiteboard://boards/board-1/pages/page-2/elements",
+      "name": "页面元素",
+      "description": "单页元素数组（按 z 序）",
+      "mimeType": "application/json"
+    }
+  ]
+}

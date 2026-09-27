@@ -1,0 +1,20 @@
+{
+  "id": "element-connector-1",
+  "pageId": "page-1",
+  "type": "connector",
+  "position": { "x": 280, "y": 120 },
+  "size": { "width": 240, "height": 60 },
+  "rotation": 0,
+  "opacity": 1.0,
+  "zIndex": 3,
+  "locked": false,
+  "hidden": false,
+  "style": { "stroke": "#1C7ED6", "strokeWidth": 2 },
+  "data": {
+    "fromElementId": "element-sticky-1",
+    "toElementId": "element-shape-1",
+    "style": "straight",
+    "waypoints": [],
+    "autoRoute": true
+  }
+}

@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://whiteboard.local/schema/command.schema.json",
+  "title": "wb command envelope",
+  "description": "CONTRACT (Wave 0). Envelope for wb_execute_command / wb_execute_tool per 《C++ 核心引擎接口设计》 §5.3/§6.",
+  "oneOf": [
+    { "$ref": "#/$defs/CommandRequest" },
+    { "$ref": "#/$defs/CommandResponse" }
+  ],
+  "$defs": {
+    "CommandRequest": {
+      "type": "object",
+      "required": ["tool", "args"],
+      "properties": {
+        "id": { "type": "string", "description": "optional client-side command id for correlation" },
+        "tool": {
+          "type": "string",
+          "description": "registered tool id, e.g. element.create / page.delete / flowchart.auto_layout",
+          "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$"
+        },
+        "args": { "type": "object", "description": "tool-specific arguments" },
+        "transactional": { "type": "boolean", "default": true },
+        "dryRun": { "type": "boolean", "default": false },
+        "user": { "type": "string", "description": "userId for permission/audit" }
+      },
+      "additionalProperties": false
+    },
+    "CommandResponse": {
+      "type": "object",
+      "required": ["ok"],
+      "properties": {
+        "id": { "type": "string" },
+        "ok": { "type": "boolean" },
+        "result": { "type": ["object", "null"], "description": "tool result payload" },
+        "error": {
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "required": ["code", "message"],
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "enum": [
+                    "Ok",
+                    "InvalidArgument",
+                    "NotFound",
+                    "PermissionDenied",
+                    "Conflict",
+                    "InternalError",
+                    "NotSupported",
+                    "Timeout",
+                    "Cancelled",
+                    "ResourceExhausted"
+                  ]
+                },
+                "message": { "type": "string" },
+                "details": { "type": "object" }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "confirmation": {
+          "type": ["object", "null"],
+          "description": "present when the tool requires confirmation",
+          "properties": {
+            "level": { "type": "string", "enum": ["Auto", "Confirm", "Forbidden"] },
+            "prompt": { "type": "string" }
+          }
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

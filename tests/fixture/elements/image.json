@@ -1,0 +1,19 @@
+{
+  "id": "element-image-1",
+  "pageId": "page-1",
+  "type": "image",
+  "position": { "x": 80, "y": 260 },
+  "size": { "width": 320, "height": 240 },
+  "rotation": 0,
+  "opacity": 1.0,
+  "zIndex": 4,
+  "locked": false,
+  "hidden": false,
+  "style": {},
+  "data": {
+    "src": "assets/images/sample.png",
+    "naturalWidth": 800,
+    "naturalHeight": 600,
+    "fit": "contain"
+  }
+}

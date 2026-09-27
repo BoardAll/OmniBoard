@@ -1,0 +1,59 @@
+{
+  "tools": [
+    {
+      "name": "element_create",
+      "title": "创建元素",
+      "description": "在指定页面上创建元素",
+      "inputSchema": {
+        "type": "object",
+        "required": ["pageId", "element"],
+        "properties": {
+          "pageId": { "type": "string" },
+          "element": {
+            "type": "object",
+            "required": ["type"],
+            "properties": {
+              "type": { "type": "string" },
+              "position": {
+                "type": "object",
+                "properties": {
+                  "x": { "type": "number" },
+                  "y": { "type": "number" }
+                }
+              },
+              "size": {
+                "type": "object",
+                "properties": {
+                  "width": { "type": "number" },
+                  "height": { "type": "number" }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "theme_list",
+      "title": "主题列表",
+      "description": "列出全部内置主题",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "page_create",
+      "title": "新建页面",
+      "description": "在指定白板中追加一页",
+      "inputSchema": {
+        "type": "object",
+        "required": ["boardId"],
+        "properties": {
+          "boardId": { "type": "string" }
+        }
+      }
+    }
+  ]
+}

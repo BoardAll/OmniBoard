@@ -1,0 +1,9 @@
+{
+  "id": "dot",
+  "name": "点阵白板",
+  "pattern": "dot",
+  "baseColor": "#FFFFFF",
+  "patternColor": "#D0D5DD",
+  "spacing": 20,
+  "dark": false
+}

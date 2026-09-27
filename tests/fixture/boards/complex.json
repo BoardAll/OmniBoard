@@ -1,0 +1,241 @@
+{
+  "id": "board-complex-1",
+  "name": "产品评审板",
+  "pageCount": 2,
+  "pages": [
+    {
+      "id": "page-1",
+      "name": "页面 1",
+      "elementCount": 6,
+      "locked": false,
+      "hidden": false,
+      "background": {},
+      "elements": [
+        {
+          "id": "element-1",
+          "pageId": "page-1",
+          "type": "sticky",
+          "position": { "x": 80, "y": 60 },
+          "size": { "width": 160, "height": 120 },
+          "rotation": 0,
+          "opacity": 1.0,
+          "zIndex": 0,
+          "locked": false,
+          "hidden": false,
+          "style": { "fill": "#FFF3BF" },
+          "data": { "text": "需求收集" }
+        },
+        {
+          "id": "element-2",
+          "pageId": "page-1",
+          "type": "sticky",
+          "position": { "x": 300, "y": 60 },
+          "size": { "width": 160, "height": 120 },
+          "rotation": 0,
+          "opacity": 1.0,
+          "zIndex": 1,
+          "locked": false,
+          "hidden": false,
+          "style": { "fill": "#D3F9D8" },
+          "data": { "text": "方案设计" }
+        },
+        {
+          "id": "element-3",
+          "pageId": "page-1",
+          "type": "shape",
+          "position": { "x": 520, "y": 60 },
+          "size": { "width": 160, "height": 120 },
+          "rotation": 0,
+          "opacity": 1.0,
+          "zIndex": 2,
+          "locked": false,
+          "hidden": false,
+          "style": { "fill": "#E7F5FF", "stroke": "#1C7ED6" },
+          "data": { "shape": "roundRect" }
+        },
+        {
+          "id": "element-4",
+          "pageId": "page-1",
+          "type": "connector",
+          "position": { "x": 240, "y": 110 },
+          "size": { "width": 60, "height": 20 },
+          "rotation": 0,
+          "opacity": 1.0,
+          "zIndex": 3,
+          "locked": false,
+          "hidden": false,
+          "style": { "stroke": "#1C7ED6", "strokeWidth": 2 },
+          "data": {
+            "fromElementId": "element-1",
+            "toElementId": "element-3",
+            "style": "straight",
+            "waypoints": [],
+            "autoRoute": true
+          }
+        },
+        {
+          "id": "element-5",
+          "pageId": "page-1",
+          "type": "mindmap",
+          "position": { "x": 80, "y": 240 },
+          "size": { "width": 500, "height": 400 },
+          "rotation": 0,
+          "opacity": 1.0,
+          "zIndex": 4,
+          "locked": false,
+          "hidden": false,
+          "style": {},
+          "data": {
+            "root": {
+              "id": "mm-1",
+              "text": "产品定位",
+              "children": [
+                { "id": "mm-2", "text": "目标用户", "children": [] },
+                { "id": "mm-3", "text": "核心价值", "children": [] }
+              ]
+            },
+            "layout": "tree",
+            "theme": "default"
+          }
+        },
+        {
+          "id": "element-6",
+          "pageId": "page-1",
+          "type": "table",
+          "position": { "x": 620, "y": 240 },
+          "size": { "width": 400, "height": 300 },
+          "rotation": 0,
+          "opacity": 1.0,
+          "zIndex": 5,
+          "locked": false,
+          "hidden": false,
+          "style": {},
+          "data": {
+            "rows": 4,
+            "cols": 3,
+            "cells": {
+              "A1": { "value": "模块" },
+              "B1": { "value": "负责人" },
+              "C1": { "value": "工期" },
+              "A2": { "value": "画布" },
+              "B2": { "value": "王小明" },
+              "C2": { "value": 5 },
+              "A3": { "value": "AI 助手" },
+              "B3": { "value": "李华" },
+              "C3": { "value": "=C2*1.5" }
+            },
+            "cellStyles": {}
+          }
+        }
+      ]
+    },
+    {
+      "id": "page-2",
+      "name": "技术方案",
+      "elementCount": 4,
+      "locked": false,
+      "hidden": false,
+      "background": {
+        "type": "dot",
+        "preset": "dot",
+        "baseColor": "#FFFFFF",
+        "patternColor": "#D0D5DD",
+        "spacing": 20
+      },
+      "elements": [
+        {
+          "id": "element-7",
+          "pageId": "page-2",
+          "type": "flowchart",
+          "position": { "x": 40, "y": 40 },
+          "size": { "width": 600, "height": 400 },
+          "rotation": 0,
+          "opacity": 1.0,
+          "zIndex": 0,
+          "locked": false,
+          "hidden": false,
+          "style": {},
+          "data": {
+            "nodes": [
+              { "id": "node-1", "type": "start", "text": "开始" },
+              { "id": "node-2", "type": "process", "text": "处理" },
+              { "id": "node-3", "type": "decision", "text": "判断" },
+              { "id": "node-4", "type": "end", "text": "结束" }
+            ],
+            "connectors": [
+              { "id": "edge-1", "from": "node-1", "to": "node-2" },
+              { "id": "edge-2", "from": "node-2", "to": "node-3" },
+              { "id": "edge-3", "from": "node-3", "to": "node-4", "label": "是" }
+            ],
+            "swimlanes": [],
+            "direction": "topToBottom"
+          }
+        },
+        {
+          "id": "element-8",
+          "pageId": "page-2",
+          "type": "function",
+          "position": { "x": 680, "y": 40 },
+          "size": { "width": 400, "height": 300 },
+          "rotation": 0,
+          "opacity": 1.0,
+          "zIndex": 1,
+          "locked": false,
+          "hidden": false,
+          "style": {},
+          "data": {
+            "expressions": [
+              { "id": "expr-1", "expression": "y = sin(x)", "visible": true }
+            ],
+            "viewport": { "xMin": -10, "xMax": 10, "yMin": -10, "yMax": 10 },
+            "samples": 256
+          }
+        },
+        {
+          "id": "element-9",
+          "pageId": "page-2",
+          "type": "render3d",
+          "position": { "x": 40, "y": 480 },
+          "size": { "width": 480, "height": 320 },
+          "rotation": 0,
+          "opacity": 1.0,
+          "zIndex": 2,
+          "locked": false,
+          "hidden": false,
+          "style": {},
+          "data": {
+            "geometry": "box",
+            "material": { "metallic": 0.2, "baseColor": "#4C88FF" },
+            "lights": [
+              { "type": "ambient", "intensity": 1.0 },
+              {
+                "type": "point",
+                "color": "#00FF00",
+                "intensity": 2.0,
+                "position": { "x": 10, "y": 20, "z": 30 }
+              }
+            ]
+          }
+        },
+        {
+          "id": "element-10",
+          "pageId": "page-2",
+          "type": "image",
+          "position": { "x": 560, "y": 480 },
+          "size": { "width": 320, "height": 240 },
+          "rotation": 0,
+          "opacity": 1.0,
+          "zIndex": 3,
+          "locked": false,
+          "hidden": false,
+          "style": {},
+          "data": {
+            "src": "assets/images/sample.png",
+            "naturalWidth": 800,
+            "naturalHeight": 600
+          }
+        }
+      ]
+    }
+  ]
+}

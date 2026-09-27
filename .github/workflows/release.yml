@@ -1,0 +1,160 @@
+# ============================================================================
+# release.yml — Tag-triggered release pipeline: build, (optional) sign,
+# package, checksum and publish the GitHub Release.
+# ============================================================================
+# Implements docs/构建打包与发布设计.md §15 (release flow) and §9.1 (signing).
+#
+# Trigger: pushing a tag like v1.0.0 (or manual workflow_dispatch).
+#
+# Signing (placeholder, conditionally executed):
+#   Configure the repository secrets WB_SIGN_CERT_B64 (base64 of the .pfx) and
+#   WB_SIGN_PASSWORD to enable Authenticode signing. Without them the signing
+#   step is skipped and the artifacts stay unsigned (development builds).
+#   See tools/scripts/sign_windows.ps1 and tools/packaging/README.md.
+#
+# Artifacts:
+#   * dist/whiteboard-<version>-windows-x64.zip  (+ SHA256SUMS / *.sha256)
+#   * dist/whiteboard-web-<version>.tar.gz       (+ SHA256SUMS)
+# ============================================================================
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  # --------------------------------------------------------------------------
+  # Windows: C++ core -> Flutter runner -> optional signing -> zip + checksums.
+  # --------------------------------------------------------------------------
+  windows:
+    name: Windows release artifacts
+    runs-on: windows-latest
+    # Job-level env makes the secrets visible to step `if:` conditions
+    # (secrets cannot be referenced directly inside `if:`).
+    env:
+      WB_SIGN_CERT_B64: ${{ secrets.WB_SIGN_CERT_B64 }}
+      WB_SIGN_PASSWORD: ${{ secrets.WB_SIGN_PASSWORD }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ vars.FLUTTER_VERSION || '3.47.5' }}
+          channel: stable
+          cache: true
+
+      - name: Build C++ core (wb_core.dll)
+        shell: pwsh
+        run: ./tools/scripts/build_cpp.ps1
+
+      - name: Build Windows application
+        shell: pwsh
+        run: ./tools/scripts/build_flutter.ps1 -Target windows
+
+      - name: Sign binaries (skipped unless WB_SIGN_CERT_B64 secret is set)
+        if: ${{ env.WB_SIGN_CERT_B64 != '' }}
+        shell: pwsh
+        env:
+          WB_SIGN_CERT_B64: ${{ secrets.WB_SIGN_CERT_B64 }}
+          WB_SIGN_PASSWORD: ${{ secrets.WB_SIGN_PASSWORD }}
+        run: |
+          $certPath = Join-Path $env:RUNNER_TEMP 'whiteboard-signing.pfx'
+          [System.IO.File]::WriteAllBytes(
+            $certPath, [Convert]::FromBase64String($env:WB_SIGN_CERT_B64))
+          $env:WB_SIGN_CERT = $certPath
+          ./tools/scripts/sign_windows.ps1 -Strict
+          Remove-Item -LiteralPath $certPath -Force
+
+      - name: Package Windows bundle (zip)
+        shell: pwsh
+        run: |
+          $version = (Get-Content -LiteralPath VERSION -Raw).Trim()
+          $src = 'apps/desktop/build/windows/x64/runner/Release'
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          $zip = "dist/whiteboard-$version-windows-x64.zip"
+          Compress-Archive -Path "$src/*" -DestinationPath $zip -Force
+          Write-Host "Created $zip"
+
+      - name: Generate checksums
+        shell: pwsh
+        run: ./tools/scripts/checksum.ps1 -Path dist -PerFile
+
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: whiteboard-windows-release
+          path: dist/
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish to GitHub Release
+        if: ${{ startsWith(github.ref, 'refs/tags/') }}
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.zip
+            dist/SHA256SUMS
+          generate_release_notes: true
+
+  # --------------------------------------------------------------------------
+  # Web: Flutter web bundle -> tar.gz + checksum.
+  # --------------------------------------------------------------------------
+  web:
+    name: Web release artifacts
+    runs-on: ubuntu-latest
+    # 串行于 windows job：避免两个 job 并行创建同一 GitHub Release（CodeReview 修复）。
+    needs: windows
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ vars.FLUTTER_VERSION || '3.47.5' }}
+          channel: stable
+          cache: true
+
+      - name: Build web bundle
+        shell: bash
+        run: |
+          cd apps/web
+          flutter build web --release
+
+      - name: Package web bundle (tar.gz, docs §14.1)
+        shell: bash
+        run: |
+          version=$(tr -d '[:space:]' < VERSION)
+          mkdir -p dist
+          tar -czf "dist/whiteboard-web-$version.tar.gz" -C apps/web/build/web .
+          ls -la dist
+
+      - name: Generate checksums
+        shell: bash
+        run: |
+          cd dist
+          sha256sum whiteboard-web-*.tar.gz > SHA256SUMS-web
+          cat SHA256SUMS-web
+
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: whiteboard-web-release
+          path: dist/
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish to GitHub Release
+        if: ${{ startsWith(github.ref, 'refs/tags/') }}
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.tar.gz
+            dist/SHA256SUMS-web

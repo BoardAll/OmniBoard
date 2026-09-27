@@ -1,0 +1,17 @@
+# Whiteboard project-wide Dart analysis options — contract file (Wave 0).
+# All packages include this via `include: ../../analysis_options.yaml`.
+include: package:flutter_lints/flutter.yaml
+
+analyzer:
+  language:
+    strict-casts: true
+    strict-inference: true
+    strict-raw-types: true
+
+linter:
+  rules:
+    prefer_single_quotes: true
+    always_declare_return_types: true
+    avoid_print: true
+    prefer_final_locals: true
+    unawaited_futures: true

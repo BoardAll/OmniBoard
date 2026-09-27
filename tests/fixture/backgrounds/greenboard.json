@@ -1,0 +1,9 @@
+{
+  "id": "greenboard",
+  "name": "绿板",
+  "pattern": "solid",
+  "baseColor": "#1E3A2F",
+  "patternColor": "",
+  "spacing": 0,
+  "dark": true
+}

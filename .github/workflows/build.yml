@@ -1,0 +1,142 @@
+# ============================================================================
+# build.yml — Build the Windows application and the Web bundle, upload
+# artifacts; the optional WASM core build runs only when enabled.
+# ============================================================================
+# Implements docs/构建打包与发布设计.md §7 (Flutter builds), §6 (C++ core) and
+# §14 (web bundle).
+#
+# Notes:
+#   * The Windows bundle verification step fails the job if whiteboard_desktop.exe
+#     or wb_core.dll is missing — the same contract as the local build
+#     (apps/desktop/windows/CMakeLists.txt wb_core_dll_deploy target).
+#   * Emscripten steps are conditional: set the repository variable
+#     ENABLE_WASM_BUILD to "true" to build the WASM core (docs §6, wasm preset
+#     needs $env{EMSDK}, provided by the setup-emsdk action).
+#   * Flutter version overridable via the FLUTTER_VERSION repository variable.
+# ============================================================================
+name: Build
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # --------------------------------------------------------------------------
+  # Windows desktop application (x64): C++ core + Flutter runner, then the
+  # bundle is uploaded as an artifact.
+  # --------------------------------------------------------------------------
+  windows-app:
+    name: Windows app (x64)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ vars.FLUTTER_VERSION || '3.47.5' }}
+          channel: stable
+          cache: true
+
+      - name: Build C++ core (wb_core.dll)
+        shell: pwsh
+        run: ./tools/scripts/build_cpp.ps1
+
+      - name: Build Windows application
+        shell: pwsh
+        run: ./tools/scripts/build_flutter.ps1 -Target windows
+
+      - name: Verify bundle (whiteboard_desktop.exe + wb_core.dll side by side)
+        shell: pwsh
+        run: |
+          $dir = 'apps/desktop/build/windows/x64/runner/Release'
+          $missing = @()
+          foreach ($f in @('whiteboard_desktop.exe', 'wb_core.dll')) {
+            if (-not (Test-Path (Join-Path $dir $f))) { $missing += $f }
+          }
+          if ($missing.Count -gt 0) {
+            throw "Bundle incomplete — missing: $($missing -join ', ')"
+          }
+          Get-ChildItem $dir -File | Format-Table Name, Length -AutoSize
+
+      - name: Upload Windows bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: whiteboard-windows-x64
+          path: apps/desktop/build/windows/x64/runner/Release/
+          if-no-files-found: error
+          retention-days: 14
+
+  # --------------------------------------------------------------------------
+  # Web bundle (+ optional WASM core when ENABLE_WASM_BUILD == "true").
+  # --------------------------------------------------------------------------
+  web:
+    name: Web bundle (+ optional WASM)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ vars.FLUTTER_VERSION || '3.47.5' }}
+          channel: stable
+          cache: true
+
+      - name: Build web bundle
+        shell: bash
+        run: |
+          cd apps/web
+          flutter build web --release
+
+      - name: Verify web bundle
+        shell: bash
+        run: |
+          for f in index.html main.dart.js wb_core.js; do
+            if [ ! -f "apps/web/build/web/$f" ]; then
+              echo "::error::missing apps/web/build/web/$f"
+              exit 1
+            fi
+          done
+          ls -la apps/web/build/web
+
+      - name: Set up Emscripten (optional)
+        if: ${{ vars.ENABLE_WASM_BUILD == 'true' }}
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: ${{ vars.EMSDK_VERSION || '3.1.74' }}
+          actions-cache-folder: emsdk-cache
+
+      - name: Build WASM core (optional, skipped unless ENABLE_WASM_BUILD == 'true')
+        if: ${{ vars.ENABLE_WASM_BUILD == 'true' }}
+        shell: bash
+        run: |
+          cmake --preset wasm
+          cmake --build --preset wasm-release
+
+      - name: Upload web bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: whiteboard-web
+          path: apps/web/build/web/
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload WASM core (optional)
+        if: ${{ vars.ENABLE_WASM_BUILD == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: whiteboard-wasm-core
+          path: |
+            build/wasm/**/*.js
+            build/wasm/**/*.wasm
+          if-no-files-found: warn
+          retention-days: 14

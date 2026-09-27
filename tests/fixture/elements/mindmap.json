@@ -1,0 +1,29 @@
+{
+  "id": "element-mindmap-1",
+  "pageId": "page-1",
+  "type": "mindmap",
+  "position": { "x": 80, "y": 240 },
+  "size": { "width": 500, "height": 400 },
+  "rotation": 0,
+  "opacity": 1.0,
+  "zIndex": 8,
+  "locked": false,
+  "hidden": false,
+  "style": {},
+  "data": {
+    "root": {
+      "id": "mm-1",
+      "text": "中心主题",
+      "children": [
+        {
+          "id": "mm-2",
+          "text": "分支A",
+          "children": [{ "id": "mm-3", "text": "叶子", "children": [] }]
+        },
+        { "id": "mm-4", "text": "分支B", "children": [] }
+      ]
+    },
+    "layout": "tree",
+    "theme": "default"
+  }
+}

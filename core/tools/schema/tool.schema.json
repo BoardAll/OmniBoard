@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://whiteboard.local/schema/tool.schema.json",
+  "title": "wb tool definition",
+  "description": "CONTRACT (Wave 0). ToolRegistry entry returned by wb_tool_list / wb_tool_get and echoed by MCP tools/list per 《C++ 核心引擎接口设计》 §7 and 《MCP_Server详细设计》 §6.",
+  "type": "object",
+  "required": ["id", "name", "parameters"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$",
+      "description": "dot-namespaced tool id, e.g. element.create"
+    },
+    "name": { "type": "string", "description": "human readable name" },
+    "description": { "type": "string" },
+    "category": {
+      "type": "string",
+      "enum": ["board", "page", "element", "render", "theme", "ai", "mcp", "sync", "admin", "other"]
+    },
+    "parameters": {
+      "type": "object",
+      "description": "JSON Schema of the args object (MCP inputSchema compatible)"
+    },
+    "confirmation": {
+      "type": "string",
+      "enum": ["auto", "confirm", "forbidden"],
+      "default": "auto",
+      "description": "confirmation level required before execution"
+    },
+    "undoable": { "type": "boolean", "default": true },
+    "requiresPermission": {
+      "type": "string",
+      "description": "permission node, e.g. element.write / board.admin"
+    },
+    "returns": { "type": "string", "description": "description of result payload" },
+    "examples": { "type": "array", "items": { "type": "object" } }
+  }
+}

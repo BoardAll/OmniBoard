@@ -1,0 +1,35 @@
+{
+  "sessionId": "ai-1",
+  "boardId": "board-1",
+  "userId": "alice",
+  "messages": [
+    {
+      "id": "msg-1",
+      "role": "user",
+      "content": "帮我把主题切换成暗夜",
+      "toolCalls": [
+        {
+          "id": "call-1",
+          "toolId": "theme.load",
+          "argsJson": "{\"theme\":\"dark-night\"}",
+          "status": "pending"
+        }
+      ],
+      "createdAt": 1730000000000
+    },
+    {
+      "id": "msg-2",
+      "role": "assistant",
+      "content": "已为你准备「暗夜」主题，确认后执行。",
+      "toolCalls": [
+        {
+          "id": "call-2",
+          "toolId": "theme.load",
+          "argsJson": "{\"theme\":\"dark-night\"}",
+          "status": "success"
+        }
+      ],
+      "createdAt": 1730000001000
+    }
+  ]
+}

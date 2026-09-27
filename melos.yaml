@@ -1,0 +1,32 @@
+name: whiteboard
+repository: https://github.com/example/whiteboard
+
+# CONTRACT FILE (Wave 0). All Flutter packages are pre-declared so parallel
+# task packages only fill their own directories. Do not add/remove entries
+# outside the coordinator.
+
+packages:
+  - apps/**
+  - packages/**
+  - platform/**
+
+scripts:
+  analyze:
+    run: melos exec -- flutter analyze
+    description: 分析所有 Flutter 包
+
+  format:
+    run: melos exec -- dart format .
+    description: 格式化所有 Dart 代码
+
+  test:
+    run: melos exec -- flutter test
+    description: 运行所有测试
+
+  build:desktop:
+    run: melos exec --scope=whiteboard_desktop -- flutter build windows --release
+    description: 构建 Windows 桌面应用
+
+  bootstrap:
+    run: melos bootstrap
+    description: 初始化所有包

@@ -1,0 +1,24 @@
+name: whiteboard_macos
+description: Whiteboard macOS platform plugin — window/transparent overlay/click-through/hotkey/tray/screen capture.
+publish_to: none
+version: 1.0.0
+
+environment:
+  sdk: '>=3.3.0 <4.0.0'
+  flutter: '>=3.19.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  ffi: ^2.1.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  plugin:
+    platforms:
+      macos:
+        pluginClass: WhiteboardMacosPlugin

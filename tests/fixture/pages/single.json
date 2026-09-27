@@ -1,0 +1,14 @@
+{
+  "boardId": "board-simple-1",
+  "count": 1,
+  "pages": [
+    {
+      "id": "page-1",
+      "name": "页面 1",
+      "elementCount": 2,
+      "locked": false,
+      "hidden": false,
+      "background": {}
+    }
+  ]
+}

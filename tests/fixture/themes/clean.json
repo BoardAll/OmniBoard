@@ -1,0 +1,22 @@
+{
+  "id": "clean-professional",
+  "name": "清爽专业",
+  "dark": false,
+  "colors": {
+    "bg.canvas": "#F7F8FA",
+    "bg.surface": "#FFFFFF",
+    "bg.elevated": "#FFFFFF",
+    "primary": "#3370FF",
+    "toolbar.bg": "#FFFFFF",
+    "toolbar.icon": "#475467",
+    "toolbar.active": "#3370FF",
+    "radial.bg": "#FFFFFF",
+    "radial.highlight": "#3370FF",
+    "sidebar.bg": "#FFFFFF",
+    "card.bg": "#FFFFFF",
+    "card.hover": "#F2F4F7",
+    "card.border": "#E4E7EC"
+  },
+  "radius": { "s": 4, "m": 8, "l": 12 },
+  "opacity": { "radial": 0.9, "toolbar": 0.95, "panel": 1.0 }
+}

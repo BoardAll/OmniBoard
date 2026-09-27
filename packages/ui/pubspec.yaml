@@ -1,0 +1,27 @@
+name: whiteboard_ui
+description: Whiteboard UI widgets (higher-level composition layer).
+publish_to: none
+version: 1.0.0
+
+environment:
+  sdk: '>=3.3.0 <4.0.0'
+  flutter: '>=3.19.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  whiteboard_ui_kit:
+    path: ../ui_kit
+  whiteboard_theme:
+    path: ../theme
+  whiteboard_icons:
+    path: ../icons
+  whiteboard_core:
+    path: ../core_dart
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:

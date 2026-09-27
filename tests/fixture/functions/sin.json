@@ -1,0 +1,15 @@
+{
+  "id": "element-function-sin",
+  "pageId": "page-1",
+  "type": "function",
+  "position": { "x": 0, "y": 0 },
+  "size": { "width": 400, "height": 300 },
+  "style": {},
+  "data": {
+    "expressions": [
+      { "id": "expr-1", "expression": "y = sin(x)", "visible": true }
+    ],
+    "viewport": { "xMin": -10, "xMax": 10, "yMin": -10, "yMax": 10 },
+    "samples": 256
+  }
+}

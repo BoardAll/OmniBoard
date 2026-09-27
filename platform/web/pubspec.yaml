@@ -1,0 +1,27 @@
+name: whiteboard_web_platform
+description: Whiteboard Web platform plugin — WASM loader and JS interop.
+publish_to: none
+version: 1.0.0
+
+environment:
+  sdk: '>=3.3.0 <4.0.0'
+  flutter: '>=3.19.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_web_plugins:
+    sdk: flutter
+  web: ^1.0.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  plugin:
+    platforms:
+      web:
+        pluginClass: WhiteboardWebPlatform
+        fileName: whiteboard_web_platform.dart

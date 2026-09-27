@@ -1,0 +1,9 @@
+{
+  "id": "whiteboard",
+  "name": "白板",
+  "pattern": "solid",
+  "baseColor": "#FFFFFF",
+  "patternColor": "",
+  "spacing": 0,
+  "dark": false
+}

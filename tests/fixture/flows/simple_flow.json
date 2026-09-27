@@ -1,0 +1,23 @@
+{
+  "id": "flow-simple-1",
+  "pageId": "page-1",
+  "type": "flowchart",
+  "position": { "x": 40, "y": 40 },
+  "size": { "width": 600, "height": 400 },
+  "style": {},
+  "data": {
+    "nodes": [
+      { "id": "node-1", "type": "start", "text": "开始" },
+      { "id": "node-2", "type": "process", "text": "处理" },
+      { "id": "node-3", "type": "decision", "text": "判断" },
+      { "id": "node-4", "type": "end", "text": "结束" }
+    ],
+    "connectors": [
+      { "id": "edge-1", "from": "node-1", "to": "node-2" },
+      { "id": "edge-2", "from": "node-2", "to": "node-3" },
+      { "id": "edge-3", "from": "node-3", "to": "node-4", "label": "是" }
+    ],
+    "swimlanes": [],
+    "direction": "topToBottom"
+  }
+}

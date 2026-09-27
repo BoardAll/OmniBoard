@@ -1,0 +1,28 @@
+name: whiteboard_mobile
+description: Whiteboard Mobile App (后续)
+publish_to: none
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.3.0 <4.0.0'
+  flutter: '>=3.19.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  whiteboard_ui_kit:
+    path: ../../packages/ui_kit
+  whiteboard_theme:
+    path: ../../packages/theme
+  whiteboard_icons:
+    path: ../../packages/icons
+  whiteboard_core:
+    path: ../../packages/core_dart
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true

@@ -1,0 +1,43 @@
+{
+  "boardId": "board-complex-1",
+  "count": 3,
+  "pages": [
+    {
+      "id": "page-1",
+      "name": "页面 1",
+      "elementCount": 6,
+      "locked": false,
+      "hidden": false,
+      "background": {}
+    },
+    {
+      "id": "page-2",
+      "name": "流程设计",
+      "elementCount": 0,
+      "locked": false,
+      "hidden": false,
+      "background": {
+        "type": "dot",
+        "preset": "dot",
+        "baseColor": "#FFFFFF",
+        "patternColor": "#D0D5DD",
+        "spacing": 20
+      }
+    },
+    {
+      "id": "page-3",
+      "name": "技术方案",
+      "elementCount": 0,
+      "locked": true,
+      "hidden": false,
+      "background": {
+        "type": "grid",
+        "preset": "dark-grid",
+        "baseColor": "#121417",
+        "patternColor": "#2A2F3A",
+        "spacing": 25,
+        "dark": true
+      }
+    }
+  ]
+}

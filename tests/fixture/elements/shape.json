@@ -1,0 +1,14 @@
+{
+  "id": "element-shape-1",
+  "pageId": "page-1",
+  "type": "shape",
+  "position": { "x": 520, "y": 60 },
+  "size": { "width": 160, "height": 120 },
+  "rotation": 0,
+  "opacity": 1.0,
+  "zIndex": 2,
+  "locked": false,
+  "hidden": false,
+  "style": { "fill": "#E7F5FF", "stroke": "#1C7ED6", "strokeWidth": 2 },
+  "data": { "shape": "roundRect", "text": "形状" }
+}

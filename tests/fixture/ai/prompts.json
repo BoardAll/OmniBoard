@@ -1,0 +1,41 @@
+{
+  "prompts": [
+    {
+      "name": "brainstorm",
+      "title": "头脑风暴",
+      "description": "围绕主题生成头脑风暴便签",
+      "arguments": [
+        { "name": "topic", "description": "主题", "required": true },
+        { "name": "count", "description": "生成数量", "required": false }
+      ],
+      "template": "请围绕「{{topic}}」生成 {{count}} 条头脑风暴想法，每条给出标题与一句话说明。"
+    },
+    {
+      "name": "userJourney",
+      "title": "用户旅程",
+      "description": "梳理用户旅程阶段与触点",
+      "arguments": [
+        { "name": "product", "description": "产品名称", "required": true }
+      ],
+      "template": "请为「{{product}}」绘制用户旅程：阶段、触点、用户行为与情绪曲线。"
+    },
+    {
+      "name": "kanban",
+      "title": "看板拆解",
+      "description": "把目标拆解为看板任务",
+      "arguments": [
+        { "name": "goal", "description": "目标", "required": true }
+      ],
+      "template": "请把「{{goal}}」拆解为待办 / 进行中 / 已完成三列任务卡片。"
+    },
+    {
+      "name": "swot",
+      "title": "SWOT 分析",
+      "description": "生成 SWOT 四象限",
+      "arguments": [
+        { "name": "topic", "description": "分析对象", "required": true }
+      ],
+      "template": "请对「{{topic}}」做 SWOT 分析，输出优势、劣势、机会、威胁各三条。"
+    }
+  ]
+}

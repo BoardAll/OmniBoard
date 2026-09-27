@@ -1,0 +1,26 @@
+# tests/e2e —— 端到端测试包（《Flutter + C++ 工程结构设计》§12.3）。
+#
+# 独立 Flutter 测试包：以 flutter_test 驱动 apps/desktop 的完整应用入口
+# （WhiteboardApp + 演示模式 FFI 降级路径），等价于 apps/desktop 的
+# integration_test 流程的 VM 可运行版本（`flutter test` 无需设备）。
+name: whiteboard_e2e
+description: Whiteboard 端到端测试（驱动 apps/desktop 应用入口，§12.3）
+publish_to: none
+version: 1.0.0
+
+environment:
+  sdk: '>=3.3.0 <4.0.0'
+  flutter: '>=3.19.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  whiteboard_desktop:
+    path: ../../apps/desktop
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+  integration_test:
+    sdk: flutter

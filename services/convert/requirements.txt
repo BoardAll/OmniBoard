@@ -1,0 +1,10 @@
+# Whiteboard document convert service — Python (contract, Wave 0).
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+pydantic==2.9.2
+python-multipart==0.0.9
+
+# PDF / document processing
+pymupdf==1.24.10
+pikepdf==9.3.0
+Pillow==10.4.0

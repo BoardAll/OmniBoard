@@ -1,0 +1,180 @@
+# ============================================================================
+# ci.yml — Continuous integration for the whiteboard monorepo.
+# ============================================================================
+# Implements docs/构建打包与发布设计.md §8 (CI 编排).
+# Split by capability:
+#   * flutter        (ubuntu)  — analyze for every Dart package + tests for all
+#                                packages except apps/desktop (pure-Dart safe).
+#   * desktop-tests  (windows) — apps/desktop tests need the Windows toolchain
+#                                / FFI DLL loading.
+#   * cpp-tests      (windows) — build wb_core with the `windows-x64` CMake
+#                                preset and run ctest.
+#   * services       (ubuntu)  — npm test for services/*, pytest for tests/.
+#
+# The Flutter version can be overridden with the repository variable
+# FLUTTER_VERSION; it defaults to the version used on the dev machine.
+# ============================================================================
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # --------------------------------------------------------------------------
+  # Flutter analyze + tests (all packages; desktop tests run on Windows below)
+  # --------------------------------------------------------------------------
+  flutter:
+    name: Flutter analyze + test (ubuntu)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ vars.FLUTTER_VERSION || '3.47.5' }}
+          channel: stable
+          cache: true
+
+      - name: flutter pub get (all packages)
+        shell: bash
+        run: |
+          set -e
+          for d in apps/* packages/* platform/*; do
+            if [ -f "$d/pubspec.yaml" ]; then
+              echo "::group::pub get $d"
+              (cd "$d" && flutter pub get)
+              echo "::endgroup::"
+            fi
+          done
+
+      - name: flutter analyze (all packages)
+        shell: bash
+        run: |
+          fail=0
+          for d in apps/* packages/* platform/*; do
+            if [ -f "$d/pubspec.yaml" ]; then
+              echo "::group::analyze $d"
+              (cd "$d" && flutter analyze) || fail=1
+              echo "::endgroup::"
+            fi
+          done
+          exit $fail
+
+      - name: flutter test (packages with a test/ directory, except apps/desktop)
+        shell: bash
+        run: |
+          fail=0
+          for d in apps/* packages/* platform/*; do
+            [ "$d" = "apps/desktop" ] && continue
+            if [ -d "$d/test" ]; then
+              echo "::group::test $d"
+              (cd "$d" && flutter test) || fail=1
+              echo "::endgroup::"
+            fi
+          done
+          exit $fail
+
+  # --------------------------------------------------------------------------
+  # Desktop application tests (Windows): FFI + platform plugins are native.
+  # --------------------------------------------------------------------------
+  desktop-tests:
+    name: Desktop app tests (windows)
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: apps/desktop
+    env:
+      # 强制真实 FFI：wb_core.dll 缺失时集成测试硬失败而非静默全跳过
+      # （CodeReview 修复：此前本 job 从未构建 DLL，4 个 FFI 文件恒被 skip）。
+      WB_REQUIRE_CORE_DLL: '1'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ vars.FLUTTER_VERSION || '3.47.5' }}
+          channel: stable
+          cache: true
+
+      - name: Build wb_core (FFI DLL required by integration tests)
+        shell: pwsh
+        working-directory: ${{ github.workspace }}
+        run: ./tools/scripts/build_cpp.ps1
+
+      - name: flutter pub get
+        run: flutter pub get
+
+      - name: flutter test
+        run: flutter test
+
+  # --------------------------------------------------------------------------
+  # C++ core: configure + build + ctest through the shared script.
+  # --------------------------------------------------------------------------
+  cpp-tests:
+    name: C++ core tests (windows)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build wb_core and run ctest
+        shell: pwsh
+        run: ./tools/scripts/build_cpp.ps1 -RunTests
+
+  # --------------------------------------------------------------------------
+  # Backend services: Node (vitest) + Python (pytest).
+  # --------------------------------------------------------------------------
+  services:
+    name: Services (node + python)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: npm test (services/api, services/mcp_server)
+        shell: bash
+        run: |
+          fail=0
+          for d in services/api services/mcp_server; do
+            if [ -f "$d/package.json" ]; then
+              echo "::group::npm test $d"
+              (cd "$d" && npm install --no-audit --no-fund && npm test) || fail=1
+              echo "::endgroup::"
+            fi
+          done
+          exit $fail
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: pytest (tests/)
+        shell: bash
+        run: |
+          if ! find tests -name 'test_*.py' -print -quit 2>/dev/null | grep -q .; then
+            echo "No Python tests found under tests/ yet — skipping pytest."
+            exit 0
+          fi
+          python -m pip install --upgrade pip
+          python -m pip install pytest
+          if [ -f tests/requirements.txt ]; then
+            python -m pip install -r tests/requirements.txt
+          fi
+          python -m pytest tests -q

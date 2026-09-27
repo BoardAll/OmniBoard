@@ -1,0 +1,9 @@
+{
+  "id": "blackboard",
+  "name": "黑板",
+  "pattern": "solid",
+  "baseColor": "#1A1D21",
+  "patternColor": "",
+  "spacing": 0,
+  "dark": true
+}

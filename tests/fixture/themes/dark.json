@@ -1,0 +1,22 @@
+{
+  "id": "dark-night",
+  "name": "暗夜",
+  "dark": true,
+  "colors": {
+    "bg.canvas": "#121417",
+    "bg.surface": "#1A1D24",
+    "bg.elevated": "#23272F",
+    "primary": "#4C88FF",
+    "toolbar.bg": "#23272F",
+    "toolbar.icon": "#AAB2C0",
+    "toolbar.active": "#4C88FF",
+    "radial.bg": "#23272F",
+    "radial.highlight": "#4C88FF",
+    "sidebar.bg": "#1A1D24",
+    "card.bg": "#23272F",
+    "card.hover": "#2C313B",
+    "card.border": "#343A46"
+  },
+  "radius": { "s": 4, "m": 8, "l": 12 },
+  "opacity": { "radial": 0.9, "toolbar": 0.95, "panel": 1.0 }
+}

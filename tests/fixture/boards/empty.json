@@ -1,0 +1,16 @@
+{
+  "id": "board-empty-1",
+  "name": "空白板",
+  "pageCount": 1,
+  "pages": [
+    {
+      "id": "page-1",
+      "name": "页面 1",
+      "elementCount": 0,
+      "locked": false,
+      "hidden": false,
+      "background": {},
+      "elements": []
+    }
+  ]
+}

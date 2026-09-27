@@ -1,0 +1,26 @@
+{
+  "id": "element-table-1",
+  "pageId": "page-1",
+  "type": "table",
+  "position": { "x": 620, "y": 240 },
+  "size": { "width": 400, "height": 300 },
+  "rotation": 0,
+  "opacity": 1.0,
+  "zIndex": 9,
+  "locked": false,
+  "hidden": false,
+  "style": {},
+  "data": {
+    "rows": 3,
+    "cols": 2,
+    "cells": {
+      "A1": { "value": "数量" },
+      "B1": { "value": "单价" },
+      "A2": { "value": 10 },
+      "B2": { "value": 2.5 },
+      "A3": { "value": "合计" },
+      "B3": { "formula": "=A2*B2", "value": 25 }
+    },
+    "cellStyles": {}
+  }
+}

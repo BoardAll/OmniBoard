@@ -1,0 +1,45 @@
+{
+  "id": "board-simple-1",
+  "name": "未命名白板",
+  "pageCount": 1,
+  "pages": [
+    {
+      "id": "page-1",
+      "name": "页面 1",
+      "elementCount": 2,
+      "locked": false,
+      "hidden": false,
+      "background": {},
+      "elements": [
+        {
+          "id": "element-1",
+          "pageId": "page-1",
+          "type": "sticky",
+          "position": { "x": 120, "y": 80 },
+          "size": { "width": 160, "height": 120 },
+          "rotation": 0,
+          "opacity": 1.0,
+          "zIndex": 0,
+          "locked": false,
+          "hidden": false,
+          "style": { "fill": "#FFF3BF" },
+          "data": { "text": "欢迎使用白板" }
+        },
+        {
+          "id": "element-2",
+          "pageId": "page-1",
+          "type": "text",
+          "position": { "x": 120, "y": 260 },
+          "size": { "width": 240, "height": 40 },
+          "rotation": 0,
+          "opacity": 1.0,
+          "zIndex": 1,
+          "locked": false,
+          "hidden": false,
+          "style": {},
+          "data": { "text": "双击编辑文本" }
+        }
+      ]
+    }
+  ]
+}

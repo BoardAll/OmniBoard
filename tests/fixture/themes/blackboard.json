@@ -1,0 +1,22 @@
+{
+  "id": "blackboard",
+  "name": "黑板",
+  "dark": true,
+  "colors": {
+    "bg.canvas": "#1A1D21",
+    "bg.surface": "#23272B",
+    "bg.elevated": "#2C3136",
+    "primary": "#FFFFFF",
+    "toolbar.bg": "#2C3136",
+    "toolbar.icon": "#D0D5DD",
+    "toolbar.active": "#FFFFFF",
+    "radial.bg": "#2C3136",
+    "radial.highlight": "#FFFFFF",
+    "sidebar.bg": "#23272B",
+    "card.bg": "#2C3136",
+    "card.hover": "#363C42",
+    "card.border": "#454C54"
+  },
+  "radius": { "s": 4, "m": 8, "l": 12 },
+  "opacity": { "radial": 0.9, "toolbar": 0.95, "panel": 1.0 }
+}
