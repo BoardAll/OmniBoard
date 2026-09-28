@@ -5,6 +5,7 @@
 library;
 
 import 'package:flutter/material.dart';
+import 'package:whiteboard_ui_kit/ui_kit.dart';
 
 /// 轨迹线 painter。
 class RadialTrailPainter extends CustomPainter {
@@ -52,7 +53,7 @@ class RadialTrailPainter extends CustomPainter {
       return;
     }
     final TextPainter textPainter = TextPainter(
-      text: TextSpan(text: label, style: labelStyle),
+      text: TextSpan(text: label, style: WbTypography.apply(labelStyle)),
       textDirection: TextDirection.ltr,
       maxLines: 1,
       ellipsis: '…',

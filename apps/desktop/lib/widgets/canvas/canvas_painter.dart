@@ -16,6 +16,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/rendering.dart';
 import 'package:whiteboard_theme/theme.dart';
+import 'package:whiteboard_ui_kit/ui_kit.dart';
 
 import '../context_editors/render3d_editor.dart';
 import 'background_painter.dart';
@@ -676,9 +677,11 @@ class WbCanvasPainter extends CustomPainter {
     final TextPainter painter = TextPainter(
       text: TextSpan(
         text: controller.sizeBadgeLabel,
-        style: const TextStyle(
-          fontSize: 11,
-          color: Color(0xFFFFFFFF),
+        style: WbTypography.apply(
+          const TextStyle(
+            fontSize: 11,
+            color: Color(0xFFFFFFFF),
+          ),
         ),
       ),
       textDirection: TextDirection.ltr,

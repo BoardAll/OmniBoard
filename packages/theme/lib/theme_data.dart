@@ -116,6 +116,8 @@ class WbThemeData {
     return ThemeData(
       useMaterial3: true,
       brightness: brightness,
+      fontFamily: WbTypography.fontFamily,
+      fontFamilyFallback: WbTypography.fontFallback,
       colorScheme: scheme,
       scaffoldBackgroundColor: colors.canvas,
       canvasColor: colors.canvas,

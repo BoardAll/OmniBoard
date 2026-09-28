@@ -2,6 +2,7 @@
 library;
 
 import 'package:flutter/material.dart';
+import 'package:flutter_miuix/miuix.dart';
 import 'package:whiteboard_icons/icons.dart';
 import 'package:whiteboard_theme/theme.dart';
 
@@ -41,7 +42,6 @@ class SettingsSection extends StatelessWidget {
   Widget build(BuildContext context) {
     final WbThemeColors colors = context.wbColors;
     final double radius = context.wbTheme.radius.m;
-    final TextTheme text = Theme.of(context).textTheme;
     return Padding(
       padding: const EdgeInsets.only(bottom: 24),
       child: Column(
@@ -54,11 +54,9 @@ class SettingsSection extends StatelessWidget {
                 const SizedBox(width: 8),
               ],
               Expanded(
-                child: Text(
+                child: MiuixSmallTitle(
                   title,
-                  style: text.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
+                  insideMargin: const EdgeInsets.symmetric(vertical: 4),
                 ),
               ),
               if (trailing != null) trailing!,
@@ -67,9 +65,10 @@ class SettingsSection extends StatelessWidget {
           if (subtitle != null)
             Padding(
               padding: const EdgeInsets.only(top: 4),
-              child: Text(
+              child: MiuixText(
                 subtitle!,
-                style: text.bodySmall?.copyWith(color: colors.icon),
+                fontSize: 12,
+                color: colors.icon,
               ),
             ),
           const SizedBox(height: 12),
@@ -127,46 +126,16 @@ class SettingsTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final WbThemeColors colors = context.wbColors;
-    final TextTheme text = Theme.of(context).textTheme;
-    final Widget content = Padding(
-      padding: EdgeInsets.symmetric(vertical: dense ? 6 : 10),
-      child: Row(
-        children: <Widget>[
-          if (leading != null) ...<Widget>[
-            leading!,
-            const SizedBox(width: 10),
-          ],
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Text(title, style: text.bodyMedium),
-                if (subtitle != null)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 2),
-                    child: Text(
-                      subtitle!,
-                      style: text.bodySmall?.copyWith(color: colors.icon),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-          if (trailing != null) ...<Widget>[
-            const SizedBox(width: 12),
-            trailing!,
-          ],
-        ],
+    return MiuixBasicComponent(
+      title: title,
+      summary: subtitle,
+      startAction: leading,
+      endActions: trailing == null ? null : <Widget>[trailing!],
+      onClick: onTap,
+      insideMargin: EdgeInsets.symmetric(
+        horizontal: 16,
+        vertical: dense ? 6 : 10,
       ),
-    );
-    if (onTap == null) {
-      return content;
-    }
-    return InkWell(
-      borderRadius: BorderRadius.circular(context.wbTheme.radius.s),
-      onTap: onTap,
-      child: content,
     );
   }
 }
@@ -199,12 +168,10 @@ class SettingsHint extends StatelessWidget {
           ),
           const SizedBox(width: 6),
           Expanded(
-            child: Text(
+            child: MiuixText(
               message,
-              style: Theme.of(context)
-                  .textTheme
-                  .bodySmall
-                  ?.copyWith(color: colors.icon),
+              fontSize: 12,
+              color: colors.icon,
             ),
           ),
         ],

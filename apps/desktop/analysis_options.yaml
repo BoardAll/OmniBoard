@@ -3,4 +3,9 @@ analyzer:
   exclude:
     - build/**
     - windows/**
+    - android/**
+    - ios/**
+    - web/**
+    - macos/**
+    - linux/**
 include: ../../analysis_options.yaml

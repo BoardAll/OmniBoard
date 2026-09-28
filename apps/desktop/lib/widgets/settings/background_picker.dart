@@ -3,6 +3,7 @@
 library;
 
 import 'package:flutter/material.dart';
+import 'package:flutter_miuix/miuix.dart';
 import 'package:whiteboard_core/wb_core.dart' show WbBackgroundPreset;
 import 'package:whiteboard_icons/icons.dart';
 import 'package:whiteboard_theme/theme.dart';
@@ -157,89 +158,84 @@ class BackgroundPicker extends StatelessWidget {
   Widget build(BuildContext context) {
     final WbThemeColors colors = context.wbColors;
     final bool custom = customColor.isNotEmpty;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: <Widget>[
-        SettingsTile(
-          leading: Icon(LinearIcons.sync, size: 18, color: colors.icon),
-          title: '背景跟随主题',
-          subtitle: followTheme
-              ? '切换主题时自动使用主题默认背景（文档 §7.2）'
-              : '已关闭：背景独立于主题，手动选择后保持',
-          trailing: Switch(
+    final bool spacingEnabled = onSpacingChanged != null;
+    final bool opacityEnabled = onOpacityChanged != null;
+    return MiuixTheme(
+      data: MiuixThemeData.of(Theme.of(context).brightness),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          MiuixSwitchPreference(
             key: const ValueKey<String>('background-follow-theme'),
+            title: '背景跟随主题',
+            summary: followTheme
+                ? '切换主题时自动使用主题默认背景（文档 §7.2）'
+                : '已关闭：背景独立于主题，手动选择后保持',
             value: followTheme,
-            onChanged: onFollowThemeChanged,
+            enabled: onFollowThemeChanged != null,
+            onChanged: onFollowThemeChanged ?? (_) {},
           ),
-        ),
-        const SizedBox(height: 8),
-        Wrap(
-          spacing: 12,
-          runSpacing: 12,
-          children: <Widget>[
-            for (final WbBackgroundPreset preset in presets)
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 12,
+            runSpacing: 12,
+            children: <Widget>[
+              for (final WbBackgroundPreset preset in presets)
+                _BackgroundCard(
+                  key: ValueKey<String>('background-preset-${preset.id}'),
+                  checkKey: ValueKey<String>('background-check-${preset.id}'),
+                  label: preset.name,
+                  selected: !custom && preset.id == selectedPresetId,
+                  preview: _presetPreview(preset),
+                  onTap: () => onPresetSelected(preset.id),
+                  reduceMotion: reduceMotion,
+                  highContrast: highContrast,
+                ),
               _BackgroundCard(
-                key: ValueKey<String>('background-preset-${preset.id}'),
-                checkKey: ValueKey<String>('background-check-${preset.id}'),
-                label: preset.name,
-                selected: !custom && preset.id == selectedPresetId,
-                preview: _presetPreview(preset),
-                onTap: () => onPresetSelected(preset.id),
+                key: const ValueKey<String>('background-custom-color'),
+                checkKey: const ValueKey<String>('background-custom-check'),
+                label: '自定义色',
+                selected: custom,
+                preview: WbBackgroundPreview(
+                  type: 'solid',
+                  baseColor: custom
+                      ? WbColorUtils.fromHex(
+                          customColor,
+                          fallback: const Color(0xFFFFFFFF),
+                        )
+                      : const Color(0xFFE4E7EC),
+                ),
+                onTap: onPickCustomColor,
                 reduceMotion: reduceMotion,
                 highContrast: highContrast,
               ),
-            _BackgroundCard(
-              key: const ValueKey<String>('background-custom-color'),
-              checkKey: const ValueKey<String>('background-custom-check'),
-              label: '自定义色',
-              selected: custom,
-              preview: WbBackgroundPreview(
-                type: 'solid',
-                baseColor: custom
-                    ? WbColorUtils.fromHex(
-                        customColor,
-                        fallback: const Color(0xFFFFFFFF),
-                      )
-                    : const Color(0xFFE4E7EC),
-              ),
-              onTap: onPickCustomColor,
-              reduceMotion: reduceMotion,
-              highContrast: highContrast,
-            ),
-          ],
-        ),
-        const Divider(height: 28),
-        SettingsTile(
-          leading: Icon(LinearIcons.grid, size: 18, color: colors.icon),
-          title: '图案间距',
-          subtitle: spacing == 0
-              ? '跟随预设（点阵 20 / 网格 25 px 等）'
-              : '覆盖值：$spacing px',
-          trailing: SizedBox(
-            width: 240,
-            child: Slider(
-              key: const ValueKey<String>('background-spacing'),
-              min: 0,
-              max: 120,
-              divisions: 24,
-              value: spacing.toDouble().clamp(0, 120),
-              onChanged: onSpacingChanged == null
-                  ? null
-                  : (double value) => onSpacingChanged!(value.round()),
-            ),
+            ],
           ),
-        ),
-        SettingsTile(
-          leading: Icon(LinearIcons.palette, size: 18, color: colors.icon),
-          title: '图案颜色',
-          subtitle: patternColor.isEmpty ? '跟随预设' : '覆盖值：$patternColor',
-          trailing: Tooltip(
-            message: '选择图案颜色',
-            child: InkWell(
-              key: const ValueKey<String>('background-pattern-color'),
-              borderRadius: BorderRadius.circular(6),
-              onTap: onPickPatternColor,
-              child: Container(
+          const Divider(height: 28),
+          MiuixSliderPreference(
+            key: const ValueKey<String>('background-spacing'),
+            title: '图案间距',
+            summary: spacing == 0
+                ? '跟随预设（点阵 20 / 网格 25 px 等）'
+                : '覆盖值：$spacing px',
+            min: 0,
+            max: 120,
+            steps: 24,
+            value: spacing.toDouble().clamp(0, 120),
+            valueText: '$spacing px',
+            enabled: spacingEnabled,
+            onValueChange: spacingEnabled
+                ? (double value) => onSpacingChanged!(value.round())
+                : (_) {},
+          ),
+          MiuixArrowPreference(
+            key: const ValueKey<String>('background-pattern-color'),
+            title: '图案颜色',
+            summary: patternColor.isEmpty ? '跟随预设' : '覆盖值：$patternColor',
+            enabled: onPickPatternColor != null,
+            onClick: onPickPatternColor,
+            endActions: <Widget>[
+              Container(
                 width: 44,
                 height: 26,
                 decoration: BoxDecoration(
@@ -257,49 +253,41 @@ class BackgroundPicker extends StatelessWidget {
                   ),
                 ),
               ),
-            ),
+            ],
           ),
-        ),
-        SettingsTile(
-          leading: Icon(LinearIcons.opacity, size: 18, color: colors.icon),
-          title: '图案透明度',
-          subtitle: '${(opacity * 100).round()}%',
-          trailing: SizedBox(
-            width: 240,
-            child: Slider(
-              key: const ValueKey<String>('background-opacity'),
-              min: 0,
-              max: 1,
-              divisions: 20,
-              value: opacity.clamp(0, 1),
-              onChanged: onOpacityChanged,
-            ),
+          MiuixSliderPreference(
+            key: const ValueKey<String>('background-opacity'),
+            title: '图案透明度',
+            summary: '${(opacity * 100).round()}%',
+            min: 0,
+            max: 1,
+            steps: 20,
+            value: opacity.clamp(0, 1),
+            valueText: '${(opacity * 100).round()}%',
+            enabled: opacityEnabled,
+            onValueChange: onOpacityChanged ?? (_) {},
           ),
-        ),
-        const SizedBox(height: 8),
-        Row(
-          children: <Widget>[
-            FilledButton.icon(
-              key: const ValueKey<String>('background-apply-current'),
-              onPressed: onApplyToCurrentPage,
-              icon: const Icon(LinearIcons.check, size: 16),
-              label: const Text('应用到当前页'),
-            ),
-            const SizedBox(width: 12),
-            OutlinedButton.icon(
-              key: const ValueKey<String>('background-apply-all'),
-              onPressed: onApplyToAllPages,
-              icon: const Icon(LinearIcons.duplicate, size: 16),
-              label: const Text('应用到全部页'),
-            ),
-          ],
-        ),
-        SettingsHint(
-          message: applyHint ??
-              '应用后经 WbPageState.setBackground 写入页面（缩略图即时更新；'
-                  '画布渲染器消费留 Wave 3 集成）',
-        ),
-      ],
+          MiuixArrowPreference(
+            key: const ValueKey<String>('background-apply-current'),
+            title: '应用到当前页',
+            summary: '写入当前白板页背景',
+            enabled: onApplyToCurrentPage != null,
+            onClick: onApplyToCurrentPage,
+          ),
+          MiuixArrowPreference(
+            key: const ValueKey<String>('background-apply-all'),
+            title: '应用到全部页',
+            summary: '写入全部白板页背景',
+            enabled: onApplyToAllPages != null,
+            onClick: onApplyToAllPages,
+          ),
+          SettingsHint(
+            message: applyHint ??
+                '应用后经 WbPageState.setBackground 写入页面（缩略图即时更新；'
+                    '画布渲染器消费留 Wave 3 集成）',
+          ),
+        ],
+      ),
     );
   }
 
@@ -541,16 +529,14 @@ class _ColorPickerDialogState extends State<_ColorPickerDialog> {
               ],
             ),
             const SizedBox(height: 12),
-            TextField(
-              key: const ValueKey<String>('bg-hex-field'),
-              controller: _controller,
-              onChanged: _onHexChanged,
-              decoration: const InputDecoration(
-                labelText: '十六进制色值',
-                hintText: '如 F5F6F8 或 #F5F6F8',
-                prefixText: '# ',
-                border: OutlineInputBorder(),
-                isDense: true,
+            MiuixTheme(
+              data: MiuixThemeData.of(Theme.of(context).brightness),
+              child: MiuixTextField(
+                key: const ValueKey<String>('bg-hex-field'),
+                controller: _controller,
+                onChanged: _onHexChanged,
+                label: '十六进制色值',
+                singleLine: true,
               ),
             ),
             if (_error)
@@ -569,15 +555,25 @@ class _ColorPickerDialogState extends State<_ColorPickerDialog> {
         ),
       ),
       actions: <Widget>[
-        TextButton(
-          key: const ValueKey<String>('bg-color-cancel'),
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('取消'),
-        ),
-        FilledButton(
-          key: const ValueKey<String>('bg-color-confirm'),
-          onPressed: () => Navigator.of(context).pop(_selected),
-          child: const Text('确定'),
+        MiuixTheme(
+          data: MiuixThemeData.of(Theme.of(context).brightness),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              MiuixTextButton(
+                '取消',
+                key: const ValueKey<String>('bg-color-cancel'),
+                onPressed: () => Navigator.of(context).pop(),
+              ),
+              const SizedBox(width: 8),
+              MiuixButton(
+                key: const ValueKey<String>('bg-color-confirm'),
+                onPressed: () => Navigator.of(context).pop(_selected),
+                colors: MiuixButtonDefaults.buttonColorsPrimary(context),
+                child: const MiuixText('确定'),
+              ),
+            ],
+          ),
         ),
       ],
     );

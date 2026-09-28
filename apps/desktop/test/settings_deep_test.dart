@@ -4,6 +4,7 @@ library;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_miuix/miuix.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:whiteboard_core/wb_core.dart' show WbBackgroundService;
@@ -25,7 +26,7 @@ WbFfiService _demoFfi() {
 
 /// 放大的测试视口：设置页为长列表，避免分区被视口裁剪而不构建。
 void _useLargeViewport(WidgetTester tester) {
-  tester.view.physicalSize = const Size(1500, 4600);
+  tester.view.physicalSize = const Size(1500, 8000);
   tester.view.devicePixelRatio = 1.0;
   addTearDown(tester.view.reset);
 }
@@ -143,6 +144,9 @@ void main() {
         backgroundOpacity: 0.8,
         toolbarStyle: WbAppearancePrefs.toolbarStyleTop,
         windowMode: WbAppearancePrefs.windowModeBlackboard,
+        shortcutOverrides: const <String, List<String>>{
+          'cmd.palette': <String>['Ctrl', 'Shift', 'P'],
+        },
       );
       final WbAppearancePrefs restored =
           WbAppearancePrefs.fromJson(prefs.toJson());
@@ -157,6 +161,10 @@ void main() {
       expect(restored.backgroundOpacity, 0.8);
       expect(restored.toolbarStyle, WbAppearancePrefs.toolbarStyleTop);
       expect(restored.windowMode, WbAppearancePrefs.windowModeBlackboard);
+      expect(
+        restored.shortcutOverrides['cmd.palette'],
+        <String>['Ctrl', 'Shift', 'P'],
+      );
       expect(restored, prefs);
 
       final WbAppearancePrefs clamped = WbAppearancePrefs.fromJson(
@@ -484,20 +492,20 @@ void main() {
       await tester.tap(find.byKey(const ValueKey<String>('background-preset-dot')));
       await tester.pumpAndSettle();
 
-      final Slider spacing = tester.widget<Slider>(
+      final MiuixSliderPreference spacing = tester.widget<MiuixSliderPreference>(
         find.byKey(const ValueKey<String>('background-spacing')),
       );
-      spacing.onChanged!(40.0);
+      spacing.onValueChange(40.0);
       await tester.pump();
       expect(find.text('覆盖值：40 px'), findsOneWidget);
       expect(theme.backgroundSpacing, 0, reason: '草稿未保存不写全局');
 
-      final Slider opacity = tester.widget<Slider>(
+      final MiuixSliderPreference opacity = tester.widget<MiuixSliderPreference>(
         find.byKey(const ValueKey<String>('background-opacity')),
       );
-      opacity.onChanged!(0.6);
+      opacity.onValueChange(0.6);
       await tester.pump();
-      expect(find.text('60%'), findsOneWidget);
+      expect(find.text('60%'), findsWidgets);
 
       await tester.tap(
         find.byKey(const ValueKey<String>('background-pattern-color')),
@@ -565,14 +573,14 @@ void main() {
       addTearDown(theme.dispose);
       await _pumpSettings(tester, theme: theme);
 
-      final Slider fontScale = tester.widget<Slider>(
+      final MiuixSliderPreference fontScale = tester.widget<MiuixSliderPreference>(
         find.byKey(const ValueKey<String>('a11y-font-scale')),
       );
-      fontScale.onChanged!(1.2);
+      fontScale.onValueChange(1.2);
       await tester.pumpAndSettle();
 
-      // 草稿态即时预览缩放。
-      expect(find.text('120%'), findsOneWidget);
+      // 草稿态即时预览缩放。滑杆数值和说明行都会显示百分比。
+      expect(find.text('120%'), findsWidgets);
       final MediaQuery scaler = tester.widget<MediaQuery>(
         find.byKey(const ValueKey<String>('settings-scaler')),
       );
@@ -842,10 +850,11 @@ void main() {
         ),
       );
 
-      final OutlinedButton importButton = tester.widget<OutlinedButton>(
+      final MiuixArrowPreference importRow = tester.widget<MiuixArrowPreference>(
         find.byKey(const ValueKey<String>('theme-import')),
       );
-      expect(importButton.onPressed, isNull, reason: 'null 回调时导入按钮禁用');
+      expect(importRow.enabled, isFalse, reason: 'null 回调时导入行禁用');
+      expect(importRow.onClick, isNull, reason: 'null 回调时导入行禁用');
 
       await tester.tap(find.byKey(const ValueKey<String>('theme-card-kids')));
       await tester.pump();
@@ -902,6 +911,62 @@ void main() {
         find.byKey(const ValueKey<String>('hotkey-conflict-banner')),
         findsNothing,
       );
+    });
+
+    testWidgets('HotkeySettings：录制新键位并恢复默认', (WidgetTester tester) async {
+      _useLargeViewport(tester);
+      Map<String, List<String>> overrides = <String, List<String>>{};
+      Future<void> pump() {
+        return tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: SingleChildScrollView(
+                child: HotkeySettings(
+                  overrides: overrides,
+                  onChanged: (String id, List<String> keys) {
+                    overrides = <String, List<String>>{
+                      ...overrides,
+                      id: keys,
+                    };
+                  },
+                  onReset: () => overrides = <String, List<String>>{},
+                ),
+              ),
+            ),
+          ),
+        );
+      }
+
+      await pump();
+      final MiuixArrowPreference reset =
+          tester.widget<MiuixArrowPreference>(
+        find.byKey(const ValueKey<String>('hotkey-reset')),
+      );
+      expect(reset.enabled, isFalse);
+
+      await tester.tap(find.text('命令面板'));
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey<String>('hotkey-capture-dialog')),
+        findsOneWidget,
+      );
+
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.keyP);
+      await tester.pump();
+      expect(find.text('Ctrl + P'), findsOneWidget);
+
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.keyP);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+      await tester.tap(find.byKey(const ValueKey<String>('hotkey-capture-confirm')));
+      await tester.pumpAndSettle();
+      expect(overrides['cmd.palette'], <String>['Ctrl', 'P']);
+
+      await pump();
+      expect(find.text('P'), findsWidgets);
+      await tester.tap(find.byKey(const ValueKey<String>('hotkey-reset')));
+      await tester.pump();
+      expect(overrides, isEmpty);
     });
   });
 }

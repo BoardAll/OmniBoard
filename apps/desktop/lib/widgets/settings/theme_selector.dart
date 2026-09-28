@@ -3,11 +3,10 @@
 library;
 
 import 'package:flutter/material.dart';
+import 'package:flutter_miuix/miuix.dart';
 import 'package:whiteboard_icons/icons.dart';
 import 'package:whiteboard_theme/theme.dart';
 import 'package:whiteboard_ui_kit/ui_kit.dart';
-
-import 'settings_section.dart';
 
 /// 主题卡片网格（含跟随系统开关、图标包、导入 / 导出入口）。
 ///
@@ -82,92 +81,92 @@ class ThemeSelector extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final WbThemeColors colors = context.wbColors;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: <Widget>[
-        SettingsTile(
-          leading: Icon(LinearIcons.darkMode, size: 18, color: colors.icon),
-          title: '跟随系统深浅色',
-          subtitle: _followSystemCaption(),
-          trailing: Switch(
+    final bool iconEnabled = onIconStyleChanged != null;
+    final int iconIndex = WbIconStyle.values
+        .indexWhere((WbIconStyle style) => style.id == iconStyleId);
+    final int selectedIconIndex = iconIndex < 0 ? 0 : iconIndex;
+    return MiuixTheme(
+      data: MiuixThemeData.of(Theme.of(context).brightness),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          MiuixSwitchPreference(
             key: const ValueKey<String>('theme-follow-system'),
+            title: '跟随系统深浅色',
+            summary: _followSystemCaption(),
             value: followSystem,
-            onChanged: onFollowSystemChanged,
+            enabled: onFollowSystemChanged != null,
+            onChanged: onFollowSystemChanged ?? (_) {},
           ),
-        ),
-        const SizedBox(height: 8),
-        Row(
-          children: <Widget>[
-            Tooltip(
-              message: onImport == null
+          Tooltip(
+            message: onImport == null
+                ? '平台文件选择通道接入后开放（Wave 4）'
+                : '导入 .zip / JSON 主题包',
+            child: MiuixArrowPreference(
+              key: const ValueKey<String>('theme-import'),
+              title: '导入主题包',
+              summary: onImport == null
                   ? '平台文件选择通道接入后开放（Wave 4）'
-                  : '导入 .zip / JSON 主题包',
-              child: OutlinedButton.icon(
-                key: const ValueKey<String>('theme-import'),
-                onPressed: onImport,
-                icon: const Icon(LinearIcons.import, size: 16),
-                label: const Text('导入主题包'),
-              ),
+                  : '从 .zip / JSON 导入主题',
+              enabled: onImport != null,
+              onClick: onImport,
             ),
-            const SizedBox(width: 12),
-            Tooltip(
-              message: onExport == null
+          ),
+          Tooltip(
+            message: onExport == null
+                ? '平台文件保存通道接入后开放（Wave 4）'
+                : '导出当前主题（.zip / JSON）',
+            child: MiuixArrowPreference(
+              key: const ValueKey<String>('theme-export'),
+              title: '导出当前主题',
+              summary: onExport == null
                   ? '平台文件保存通道接入后开放（Wave 4）'
-                  : '导出当前主题（.zip / JSON）',
-              child: OutlinedButton.icon(
-                key: const ValueKey<String>('theme-export'),
-                onPressed: onExport,
-                icon: const Icon(LinearIcons.export, size: 16),
-                label: const Text('导出当前主题'),
-              ),
+                  : '导出为 .zip / JSON',
+              enabled: onExport != null,
+              onClick: onExport,
             ),
-          ],
-        ),
-        SettingsTile(
-          leading: Icon(LinearIcons.grid, size: 18, color: colors.icon),
-          title: '图标包',
-          subtitle: '主题包携带的图标风格（文档 §3.5，共 5 种）',
-        ),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: <Widget>[
-            for (final WbIconStyle style in WbIconStyle.values)
-              ChoiceChip(
-                key: ValueKey<String>('icon-style-${style.id}'),
-                label: Text(style.displayName),
-                selected: style.id == iconStyleId,
-                onSelected: onIconStyleChanged == null
-                    ? null
-                    : (bool _) => onIconStyleChanged!.call(style.id),
-              ),
-          ],
-        ),
-        SettingsTile(
-          leading: Icon(LinearIcons.text, size: 18, color: colors.icon),
-          title: '字体',
-          subtitle: '系统默认字体；自定义字体包 Wave 4 接入（字号缩放见「无障碍」）',
-        ),
-        const Divider(height: 20),
-        Wrap(
-          spacing: 12,
-          runSpacing: 12,
-          children: <Widget>[
-            for (final WbThemeData theme in themes)
-              _ThemeCard(
-                theme: theme,
-                selected: theme.id == selectedId,
-                effective:
-                    effectiveThemeId != null && theme.id == effectiveThemeId,
-                description: descriptionFor(theme.id),
-                onTap: () => onSelect(theme.id),
-                reduceMotion: reduceMotion,
-                highContrast: highContrast,
-              ),
-          ],
-        ),
-      ],
+          ),
+          // 设置页仍是 Material Scaffold，没有 MiuixPopupHost；
+          // Overlay 版下拉会注册到空宿主，改用 Window 版挂根 Overlay。
+          MiuixWindowDropdownPreference(
+            key: const ValueKey<String>('icon-style'),
+            title: '图标包',
+            summary: '主题包携带的图标风格（文档 §3.5，共 5 种）',
+            items: <String>[
+              for (final WbIconStyle style in WbIconStyle.values)
+                style.displayName,
+            ],
+            selectedIndex: selectedIconIndex,
+            enabled: iconEnabled,
+            onSelectedIndexChange: iconEnabled
+                ? (int index) =>
+                    onIconStyleChanged!(WbIconStyle.values[index].id)
+                : null,
+          ),
+          const MiuixBasicComponent(
+            title: '字体',
+            summary: '系统默认字体；自定义字体包 Wave 4 接入（字号缩放见「无障碍」）',
+          ),
+          const Divider(height: 20),
+          Wrap(
+            spacing: 12,
+            runSpacing: 12,
+            children: <Widget>[
+              for (final WbThemeData theme in themes)
+                _ThemeCard(
+                  theme: theme,
+                  selected: theme.id == selectedId,
+                  effective:
+                      effectiveThemeId != null && theme.id == effectiveThemeId,
+                  description: descriptionFor(theme.id),
+                  onTap: () => onSelect(theme.id),
+                  reduceMotion: reduceMotion,
+                  highContrast: highContrast,
+                ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 
@@ -465,10 +464,13 @@ Future<void> showWbThemeExportDialog(
           ),
         ),
         actions: <Widget>[
-          TextButton(
-            key: const ValueKey<String>('theme-export-close'),
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('关闭'),
+          MiuixTheme(
+            data: MiuixThemeData.of(Theme.of(dialogContext).brightness),
+            child: MiuixTextButton(
+              '关闭',
+              key: const ValueKey<String>('theme-export-close'),
+              onPressed: () => Navigator.of(dialogContext).pop(),
+            ),
           ),
         ],
       );
@@ -528,16 +530,15 @@ class _ThemeImportDialogState extends State<_ThemeImportDialog> {
               style: Theme.of(context).textTheme.bodySmall,
             ),
             const SizedBox(height: 10),
-            TextField(
-              key: const ValueKey<String>('theme-import-field'),
-              controller: _controller,
-              onChanged: _onChanged,
-              minLines: 4,
-              maxLines: 6,
-              decoration: const InputDecoration(
-                hintText: '{"id": "my-pack", "name": "我的主题包", "themes": [...]}',
-                border: OutlineInputBorder(),
-                isDense: true,
+            MiuixTheme(
+              data: MiuixThemeData.of(Theme.of(context).brightness),
+              child: MiuixTextField(
+                key: const ValueKey<String>('theme-import-field'),
+                controller: _controller,
+                onChanged: _onChanged,
+                label: '主题包 JSON',
+                minLines: 4,
+                maxLines: 6,
               ),
             ),
             if (_showError)
@@ -573,15 +574,25 @@ class _ThemeImportDialogState extends State<_ThemeImportDialog> {
         ),
       ),
       actions: <Widget>[
-        TextButton(
-          key: const ValueKey<String>('theme-import-cancel'),
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('取消'),
-        ),
-        FilledButton(
-          key: const ValueKey<String>('theme-import-confirm'),
-          onPressed: _confirm,
-          child: const Text('校验并导入'),
+        MiuixTheme(
+          data: MiuixThemeData.of(Theme.of(context).brightness),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              MiuixTextButton(
+                '取消',
+                key: const ValueKey<String>('theme-import-cancel'),
+                onPressed: () => Navigator.of(context).pop(),
+              ),
+              const SizedBox(width: 8),
+              MiuixButton(
+                key: const ValueKey<String>('theme-import-confirm'),
+                onPressed: _confirm,
+                colors: MiuixButtonDefaults.buttonColorsPrimary(context),
+                child: const MiuixText('校验并导入'),
+              ),
+            ],
+          ),
         ),
       ],
     );

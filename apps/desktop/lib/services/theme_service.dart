@@ -109,6 +109,7 @@ class WbAppearancePrefs {
     this.backgroundOpacity = 1.0,
     this.toolbarStyle = toolbarStyleRadial,
     this.windowMode = windowModeWindow,
+    this.shortcutOverrides = const <String, List<String>>{},
   });
 
   /// 默认背景预设（文档 §8.5：浅灰白板）。
@@ -177,6 +178,9 @@ class WbAppearancePrefs {
   /// 窗口模式 id（[windowModeWindow] / [windowModeBlackboard]）。
   final String windowMode;
 
+  /// 快捷键覆盖（动作 id → 键位片段，如 `['Ctrl', 'K']`）。空表示全部默认。
+  final Map<String, List<String>> shortcutOverrides;
+
   /// 返回修改指定字段后的副本。
   WbAppearancePrefs copyWith({
     bool? followSystem,
@@ -194,6 +198,7 @@ class WbAppearancePrefs {
     double? backgroundOpacity,
     String? toolbarStyle,
     String? windowMode,
+    Map<String, List<String>>? shortcutOverrides,
   }) {
     return WbAppearancePrefs(
       followSystem: followSystem ?? this.followSystem,
@@ -214,6 +219,7 @@ class WbAppearancePrefs {
       backgroundOpacity: backgroundOpacity ?? this.backgroundOpacity,
       toolbarStyle: toolbarStyle ?? this.toolbarStyle,
       windowMode: windowMode ?? this.windowMode,
+      shortcutOverrides: shortcutOverrides ?? this.shortcutOverrides,
     );
   }
 
@@ -234,6 +240,12 @@ class WbAppearancePrefs {
         'backgroundOpacity': backgroundOpacity,
         'toolbarStyle': toolbarStyle,
         'windowMode': windowMode,
+        if (shortcutOverrides.isNotEmpty)
+          'shortcutOverrides': <String, List<String>>{
+            for (final MapEntry<String, List<String>> entry
+                in shortcutOverrides.entries)
+              entry.key: List<String>.of(entry.value),
+          },
       };
 
   /// 从 JSON 恢复（缺省字段使用默认值；字号缩放自动夹取边界）。
@@ -266,7 +278,28 @@ class WbAppearancePrefs {
       backgroundOpacity: readDouble('backgroundOpacity', 1.0).clamp(0.0, 1.0),
       toolbarStyle: readString('toolbarStyle', toolbarStyleRadial),
       windowMode: readString('windowMode', windowModeWindow),
+      shortcutOverrides: _readShortcutOverrides(json['shortcutOverrides']),
     );
+  }
+
+  static Map<String, List<String>> _readShortcutOverrides(Object? raw) {
+    if (raw is! Map) {
+      return const <String, List<String>>{};
+    }
+    final Map<String, List<String>> overrides = <String, List<String>>{};
+    raw.forEach((Object? key, Object? value) {
+      if (key is! String || value is! List) {
+        return;
+      }
+      final List<String> keys = <String>[
+        for (final Object? part in value)
+          if (part is String && part.isNotEmpty) part,
+      ];
+      if (keys.isNotEmpty) {
+        overrides[key] = List<String>.unmodifiable(keys);
+      }
+    });
+    return Map<String, List<String>>.unmodifiable(overrides);
   }
 
   @override
@@ -286,7 +319,8 @@ class WbAppearancePrefs {
       other.backgroundPatternColor == backgroundPatternColor &&
       other.backgroundOpacity == backgroundOpacity &&
       other.toolbarStyle == toolbarStyle &&
-      other.windowMode == windowMode;
+      other.windowMode == windowMode &&
+      _sameOverrides(other.shortcutOverrides, shortcutOverrides);
 
   @override
   int get hashCode => Object.hash(
@@ -305,5 +339,32 @@ class WbAppearancePrefs {
         backgroundOpacity,
         toolbarStyle,
         windowMode,
+        Object.hashAll(
+          shortcutOverrides.entries.map(
+            (MapEntry<String, List<String>> entry) =>
+                Object.hash(entry.key, Object.hashAll(entry.value)),
+          ),
+        ),
       );
+
+  static bool _sameOverrides(
+    Map<String, List<String>> a,
+    Map<String, List<String>> b,
+  ) {
+    if (a.length != b.length) {
+      return false;
+    }
+    for (final MapEntry<String, List<String>> entry in a.entries) {
+      final List<String>? other = b[entry.key];
+      if (other == null || other.length != entry.value.length) {
+        return false;
+      }
+      for (var i = 0; i < other.length; i++) {
+        if (other[i] != entry.value[i]) {
+          return false;
+        }
+      }
+    }
+    return true;
+  }
 }

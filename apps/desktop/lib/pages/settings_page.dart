@@ -8,6 +8,7 @@ library;
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_miuix/miuix.dart';
 import 'package:provider/provider.dart';
 import 'package:whiteboard_ai/ai_client.dart';
 import 'package:whiteboard_core/wb_core.dart' show WbBackgroundService;
@@ -362,26 +363,44 @@ class _SettingsPageState extends State<SettingsPage> {
         return _wrapScaler(
           context,
           draft,
-          Scaffold(
-            appBar: AppBar(
-              title: const Text('设置'),
-              backgroundColor: colors.surface,
-              actions: <Widget>[
-                TextButton(
-                  key: const ValueKey<String>('settings-cancel'),
-                  onPressed: _cancel,
-                  child: const Text('取消'),
+          MiuixTheme(
+            data: MiuixThemeData.of(Theme.of(context).brightness),
+            child: Scaffold(
+            body: Column(
+              children: <Widget>[
+                MiuixSmallTopAppBar(
+                  title: '设置',
+                  navigationIcon: MiuixIconButton(
+                    onPressed: _cancel,
+                    child: const MiuixIcon(icon: Icons.arrow_back),
+                  ),
+                  actions: <Widget>[
+                    MiuixTextButton(
+                      '取消',
+                      key: const ValueKey<String>('settings-cancel'),
+                      onPressed: _cancel,
+                      minHeight: 32,
+                      insideMargin: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 4,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    MiuixButton(
+                      key: const ValueKey<String>('settings-save'),
+                      onPressed: () => _save(theme, draft, draftThemeId),
+                      minHeight: 32,
+                      insideMargin: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 4,
+                      ),
+                      colors: MiuixButtonDefaults.buttonColorsPrimary(context),
+                      child: const MiuixText('保存'),
+                    ),
+                  ],
                 ),
-                const SizedBox(width: 8),
-                FilledButton(
-                  key: const ValueKey<String>('settings-save'),
-                  onPressed: () => _save(theme, draft, draftThemeId),
-                  child: const Text('保存'),
-                ),
-                const SizedBox(width: 16),
-              ],
-            ),
-            body: Align(
+                Expanded(
+                  child: Align(
               alignment: Alignment.topCenter,
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 1080),
@@ -597,10 +616,28 @@ class _SettingsPageState extends State<SettingsPage> {
                     SettingsSection(
                       title: '快捷键',
                       icon: LinearIcons.table,
-                      subtitle: '文档 §8 总表（只读）；键位冲突检测基于实际注册表',
+                      subtitle: '点击条目录制新键位，保存后生效；可恢复默认',
                       highContrast: highContrast,
                       children: <Widget>[
-                        HotkeySettings(shortcuts: WbShortcutService.defaults),
+                        HotkeySettings(
+                          shortcuts: WbShortcutService.defaults,
+                          overrides: draft.shortcutOverrides,
+                          onChanged: (String id, List<String> keys) {
+                            _updateDraft(
+                              draft.copyWith(
+                                shortcutOverrides: <String, List<String>>{
+                                  ...draft.shortcutOverrides,
+                                  id: keys,
+                                },
+                              ),
+                            );
+                          },
+                          onReset: () => _updateDraft(
+                            draft.copyWith(
+                              shortcutOverrides: const <String, List<String>>{},
+                            ),
+                          ),
+                        ),
                       ],
                     ),
                     // ---- AI 助手 ----
@@ -630,32 +667,24 @@ class _SettingsPageState extends State<SettingsPage> {
                           },
                         ),
                         const SizedBox(height: 12),
-                        TextField(
+                        MiuixTextField(
                           controller: _apiKeyController,
+                          label: 'API Key',
                           obscureText: true,
-                          decoration: const InputDecoration(
-                            labelText: 'API Key',
-                            hintText: '明文保存在本机（settings.json，请妥善保管）',
-                            border: OutlineInputBorder(),
-                          ),
+                          singleLine: true,
                         ),
                         const SizedBox(height: 12),
-                        TextField(
+                        MiuixTextField(
                           controller: _modelController,
-                          decoration: const InputDecoration(
-                            labelText: '模型',
-                            hintText: '如 gpt-4o-mini / claude-3-5-sonnet-latest',
-                            border: OutlineInputBorder(),
-                          ),
+                          label: '模型',
+                          singleLine: true,
                         ),
                         if (_providerKind == 'custom') ...<Widget>[
                           const SizedBox(height: 12),
-                          TextField(
+                          MiuixTextField(
                             controller: _baseUrlController,
-                            decoration: const InputDecoration(
-                              labelText: 'Base URL（OpenAI 兼容）',
-                              border: OutlineInputBorder(),
-                            ),
+                            label: 'Base URL（OpenAI 兼容）',
+                            singleLine: true,
                           ),
                         ],
                         const SizedBox(height: 12),
@@ -688,13 +717,10 @@ class _SettingsPageState extends State<SettingsPage> {
                       icon: LinearIcons.cloud,
                       highContrast: highContrast,
                       children: <Widget>[
-                        TextField(
+                        MiuixTextField(
                           controller: _serverController,
-                          decoration: const InputDecoration(
-                            labelText: '协作服务地址',
-                            hintText: 'wss://sync.example.com/board',
-                            border: OutlineInputBorder(),
-                          ),
+                          label: '协作服务地址',
+                          singleLine: true,
                         ),
                         const SizedBox(height: 12),
                         Row(
@@ -727,35 +753,27 @@ class _SettingsPageState extends State<SettingsPage> {
                       icon: LinearIcons.info,
                       highContrast: highContrast,
                       children: <Widget>[
-                        const ListTile(
-                          dense: true,
-                          leading: Icon(LinearIcons.info),
-                          title: Text('Whiteboard 桌面版'),
-                          subtitle: Text('版本 1.0.0（Wave 3 深度实现）'),
+                        const MiuixBasicComponent(
+                          title: 'Whiteboard 桌面版',
+                          summary: '版本 1.0.0（Wave 3 深度实现）',
+                          startAction: Icon(LinearIcons.info),
                         ),
-                        ListTile(
-                          dense: true,
-                          leading: const Icon(LinearIcons.grid),
-                          title: Text('平台：${WbPlatformService.platformName}'),
-                          subtitle:
-                              const Text('Flutter + C++ 核心引擎（wb_core）'),
+                        MiuixBasicComponent(
+                          title: '平台：${WbPlatformService.platformName}',
+                          summary: 'Flutter + C++ 核心引擎（wb_core）',
+                          startAction: const Icon(LinearIcons.grid),
                         ),
-                        ListTile(
-                          dense: true,
-                          leading: Icon(
+                        MiuixBasicComponent(
+                          title: ffi?.isAvailable == true
+                              ? '引擎已加载'
+                              : '引擎未加载（演示模式）',
+                          summary: ffi?.isAvailable == true
+                              ? (ffi?.loadedFrom ?? '')
+                              : '${ffi?.error ?? '未初始化'}',
+                          startAction: Icon(
                             ffi?.isAvailable == true
                                 ? LinearIcons.cloud
                                 : LinearIcons.offline,
-                          ),
-                          title: Text(
-                            ffi?.isAvailable == true
-                                ? '引擎已加载'
-                                : '引擎未加载（演示模式）',
-                          ),
-                          subtitle: Text(
-                            ffi?.isAvailable == true
-                                ? (ffi?.loadedFrom ?? '')
-                                : '${ffi?.error ?? '未初始化'}',
                           ),
                         ),
                       ],
@@ -763,6 +781,10 @@ class _SettingsPageState extends State<SettingsPage> {
                   ],
                 ),
               ),
+            ),
+                ),
+              ],
+            ),
             ),
           ),
         );

@@ -35,6 +35,8 @@ dependencies:
   hotkey_manager: ^0.2.0
   tray_manager: ^0.3.0
   screen_retriever: ^0.1.0
+  flutter_miuix:
+    path: ../../../flutter_miuix
 
 dev_dependencies:
   flutter_test:

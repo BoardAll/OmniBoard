@@ -3,6 +3,7 @@
 library;
 
 import 'package:flutter/material.dart';
+import 'package:flutter_miuix/miuix.dart';
 import 'package:whiteboard_icons/icons.dart';
 import 'package:whiteboard_theme/theme.dart';
 
@@ -60,78 +61,65 @@ class AccessibilitySettings extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final WbThemeColors colors = context.wbColors;
+    final bool fontScaleEnabled = onFontScaleChanged != null;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
-        SettingsTile(
-          leading: Icon(LinearIcons.refresh, size: 18, color: colors.icon),
+        MiuixSwitchPreference(
+          key: const ValueKey<String>('a11y-reduce-motion'),
           title: '减少动效',
-          subtitle: '界面过渡与动画降为即时切换（文档 §9）',
-          trailing: Switch(
-            key: const ValueKey<String>('a11y-reduce-motion'),
-            value: reduceMotion,
-            onChanged: onReduceMotionChanged,
-          ),
+          summary: '界面过渡与动画降为即时切换（文档 §9）',
+          value: reduceMotion,
+          enabled: onReduceMotionChanged != null,
+          onChanged: onReduceMotionChanged ?? (_) {},
         ),
-        SettingsTile(
-          leading: Icon(LinearIcons.opacity, size: 18, color: colors.icon),
+        MiuixSwitchPreference(
+          key: const ValueKey<String>('a11y-reduce-transparency'),
           title: '减少透明度',
-          subtitle: '磨砂 / 半透明面板改用不透明底色',
-          trailing: Switch(
-            key: const ValueKey<String>('a11y-reduce-transparency'),
-            value: reduceTransparency,
-            onChanged: onReduceTransparencyChanged,
-          ),
+          summary: '磨砂 / 半透明面板改用不透明底色',
+          value: reduceTransparency,
+          enabled: onReduceTransparencyChanged != null,
+          onChanged: onReduceTransparencyChanged ?? (_) {},
         ),
-        SettingsTile(
-          leading: Icon(LinearIcons.visible, size: 18, color: colors.icon),
+        MiuixSwitchPreference(
+          key: const ValueKey<String>('a11y-high-contrast'),
           title: '高对比度',
-          subtitle: '加强边框与前景对比，聚焦控件更醒目（文档 §9）',
-          trailing: Switch(
-            key: const ValueKey<String>('a11y-high-contrast'),
-            value: highContrast,
-            onChanged: onHighContrastChanged,
-          ),
+          summary: '加强边框与前景对比，聚焦控件更醒目（文档 §9）',
+          value: highContrast,
+          enabled: onHighContrastChanged != null,
+          onChanged: onHighContrastChanged ?? (_) {},
         ),
-        SettingsTile(
-          leading: Icon(LinearIcons.fontSize, size: 18, color: colors.icon),
+        MiuixSliderPreference(
+          key: const ValueKey<String>('a11y-font-scale'),
           title: '字号缩放',
-          subtitle: '缩放应用内文字（80%–150%）',
-          trailing: SizedBox(
-            width: 220,
-            child: Slider(
-              key: const ValueKey<String>('a11y-font-scale'),
-              min: minFontScale,
-              max: maxFontScale,
-              divisions: 14,
-              value: fontScale.clamp(minFontScale, maxFontScale),
-              onChanged: onFontScaleChanged,
-            ),
-          ),
+          summary: '缩放应用内文字（80%–150%）',
+          min: minFontScale,
+          max: maxFontScale,
+          steps: 14,
+          value: fontScale.clamp(minFontScale, maxFontScale),
+          valueText: '${(fontScale * 100).round()}%',
+          enabled: fontScaleEnabled,
+          onValueChange: onFontScaleChanged ?? (_) {},
         ),
         Padding(
           padding: const EdgeInsets.only(left: 28, bottom: 4),
           child: Row(
             children: <Widget>[
-              Text(
-                '当前字号：',
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-              Text(
+              const MiuixText('当前字号：'),
+              MiuixText(
                 '${(fontScale * 100).round()}%',
                 key: const ValueKey<String>('a11y-font-scale-label'),
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: colors.primary,
-                      fontWeight: FontWeight.w600,
-                    ),
+                color: colors.primary,
+                fontWeight: FontWeight.w600,
               ),
               const Spacer(),
-              TextButton(
+              MiuixTextButton(
+                '重置为 100%',
                 key: const ValueKey<String>('a11y-font-scale-reset'),
-                onPressed: onFontScaleChanged == null
-                    ? null
-                    : () => onFontScaleChanged!(1.0),
-                child: const Text('重置为 100%'),
+                enabled: fontScaleEnabled,
+                onPressed: fontScaleEnabled
+                    ? () => onFontScaleChanged!(1.0)
+                    : null,
               ),
             ],
           ),

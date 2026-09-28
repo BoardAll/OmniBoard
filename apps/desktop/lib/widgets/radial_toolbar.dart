@@ -30,6 +30,7 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import 'package:whiteboard_icons/icons.dart';
 import 'package:whiteboard_theme/theme.dart';
+import 'package:whiteboard_ui_kit/ui_kit.dart';
 
 import '../routes.dart';
 import '../state/board_state.dart';
@@ -984,9 +985,11 @@ class _RadialToolbarState extends State<RadialToolbar> {
                     labelColor: colors.toolbarIcon,
                     labelBackground:
                         colors.radialBackground.withValues(alpha: 0.96),
-                    labelStyle: TextStyle(
-                      fontSize: metrics.labelFontSize,
-                      color: colors.toolbarIcon,
+                    labelStyle: WbTypography.apply(
+                      TextStyle(
+                        fontSize: metrics.labelFontSize,
+                        color: colors.toolbarIcon,
+                      ),
                     ),
                   ),
                 ),

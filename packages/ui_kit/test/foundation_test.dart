@@ -89,8 +89,12 @@ void main() {
       expect(WbTypography.display.fontWeight, WbTypography.weightBold);
     });
 
-    test('中文优先字体回退列表', () {
-      expect(WbTypography.fontFallback.first, contains('YaHei'));
+    test('界面字体：西文 Segoe UI，中文回退等线', () {
+      expect(WbTypography.fontFamily, 'Segoe UI');
+      expect(WbTypography.fontFallback.first, 'DengXian');
+      expect(WbTypography.fontFallback, contains('Microsoft YaHei'));
+      expect(WbTypography.fontFallback, isNot(contains('Microsoft YaHei UI')));
+      expect(WbTypography.body.fontFamily, WbTypography.fontFamily);
       expect(WbTypography.monoFallback, isNotEmpty);
     });
   });

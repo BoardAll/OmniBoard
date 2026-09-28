@@ -536,7 +536,7 @@ class WbCanvasTextCache {
       return cached;
     }
     final TextPainter painter = TextPainter(
-      text: TextSpan(text: text, style: style),
+      text: TextSpan(text: text, style: WbTypography.apply(style)),
       textDirection: TextDirection.ltr,
       textAlign: align,
       maxLines: maxLines,
