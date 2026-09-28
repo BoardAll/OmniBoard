@@ -144,7 +144,7 @@ void main() {
         backgroundOpacity: 0.8,
         toolbarStyle: WbAppearancePrefs.toolbarStyleTop,
         windowMode: WbAppearancePrefs.windowModeBlackboard,
-        shortcutOverrides: const <String, List<String>>{
+        shortcutOverrides: <String, List<String>>{
           'cmd.palette': <String>['Ctrl', 'Shift', 'P'],
         },
       );
