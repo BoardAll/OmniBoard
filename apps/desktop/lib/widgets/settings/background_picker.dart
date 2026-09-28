@@ -398,24 +398,6 @@ class _BackgroundCard extends StatelessWidget {
   }
 }
 
-/// 自定义背景色候选色板（14 色：浅色 9 + 深色 5）。
-const List<Color> _kBackgroundSwatches = <Color>[
-  Color(0xFFFFFFFF),
-  Color(0xFFF5F6F8),
-  Color(0xFFFBF3E4),
-  Color(0xFFE8F0FE),
-  Color(0xFFE6F4EA),
-  Color(0xFFFCE8E6),
-  Color(0xFFFEF7E0),
-  Color(0xFFEDE7F6),
-  Color(0xFFE0F7FA),
-  Color(0xFF263238),
-  Color(0xFF1A1D21),
-  Color(0xFF1E3A2F),
-  Color(0xFF121417),
-  Color(0xFF3E2723),
-];
-
 /// 显示背景色选择对话框；确认返回颜色，取消返回 null。
 Future<Color?> showWbBackgroundColorDialog(
   BuildContext context, {
@@ -424,158 +406,105 @@ Future<Color?> showWbBackgroundColorDialog(
 }) {
   return showDialog<Color>(
     context: context,
+    barrierColor: const Color(0x00000000),
     builder: (BuildContext dialogContext) =>
         _ColorPickerDialog(initialColor: initialColor, title: title),
   );
 }
 
-class _ColorPickerDialog extends StatefulWidget {
+class _ColorPickerDialog extends StatelessWidget {
   const _ColorPickerDialog({required this.initialColor, required this.title});
 
   final Color initialColor;
   final String title;
 
   @override
-  State<_ColorPickerDialog> createState() => _ColorPickerDialogState();
-}
-
-class _ColorPickerDialogState extends State<_ColorPickerDialog> {
-  static final RegExp _hexPattern = RegExp(r'^#?[0-9a-fA-F]{6}$');
-
-  late Color _selected = widget.initialColor;
-  late final TextEditingController _controller =
-      TextEditingController(text: _hexText(widget.initialColor));
-  bool _error = false;
-
-  static String _hexText(Color color) =>
-      WbColorUtils.toHex(color).replaceFirst('#', '');
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  void _onHexChanged(String value) {
-    final String text = value.trim();
-    final bool valid = _hexPattern.hasMatch(text);
-    setState(() {
-      _error = !valid;
-      if (valid) {
-        _selected = WbColorUtils.fromHex(text);
-      }
-    });
-  }
-
-  void _pick(Color color) {
-    setState(() {
-      _selected = color;
-      _error = false;
-      _controller.text = _hexText(color);
-    });
-  }
-
-  @override
   Widget build(BuildContext context) {
-    final WbThemeColors colors = context.wbColors;
-    return AlertDialog(
-      key: const ValueKey<String>('bg-color-dialog'),
-      title: Text(widget.title),
-      content: SizedBox(
-        width: 360,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
+    return MiuixTheme(
+      data: MiuixThemeData.of(Theme.of(context).brightness),
+      child: MiuixPopupScope(
+        establishRoot: true,
+        child: Stack(
           children: <Widget>[
-            Container(
-              key: const ValueKey<String>('bg-color-preview'),
-              height: 40,
-              decoration: BoxDecoration(
-                color: _selected,
-                borderRadius: BorderRadius.circular(6),
-                border: Border.all(color: colors.border),
-              ),
+            MiuixOverlayDialog(
+              key: const ValueKey<String>('bg-color-dialog'),
+              show: true,
+              renderInRootScaffold: false,
+              title: title,
+              onDismissRequest: () => Navigator.of(context).pop(),
+              content: _ColorPickerBody(initialColor: initialColor),
             ),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: <Widget>[
-                for (final Color color in _kBackgroundSwatches)
-                  Tooltip(
-                    message: WbColorUtils.toHex(color),
-                    child: InkWell(
-                      key: ValueKey<String>(
-                        'bg-swatch-${WbColorUtils.toHex(color)}',
-                      ),
-                      borderRadius: BorderRadius.circular(6),
-                      onTap: () => _pick(color),
-                      child: Container(
-                        width: 30,
-                        height: 30,
-                        decoration: BoxDecoration(
-                          color: color,
-                          borderRadius: BorderRadius.circular(6),
-                          border: Border.all(
-                            color: color == _selected
-                                ? colors.primary
-                                : colors.border,
-                            width: color == _selected ? 2 : 1,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            MiuixTheme(
-              data: MiuixThemeData.of(Theme.of(context).brightness),
-              child: MiuixTextField(
-                key: const ValueKey<String>('bg-hex-field'),
-                controller: _controller,
-                onChanged: _onHexChanged,
-                label: '十六进制色值',
-                singleLine: true,
-              ),
-            ),
-            if (_error)
-              Padding(
-                padding: const EdgeInsets.only(top: 6),
-                child: Text(
-                  '格式无效：请输入 6 位十六进制色值',
-                  key: const ValueKey<String>('bg-hex-error'),
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Theme.of(context).colorScheme.error,
-                  ),
-                ),
-              ),
+            const MiuixPopupHost(),
           ],
         ),
       ),
-      actions: <Widget>[
-        MiuixTheme(
-          data: MiuixThemeData.of(Theme.of(context).brightness),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
+    );
+  }
+}
+
+class _ColorPickerBody extends StatefulWidget {
+  const _ColorPickerBody({required this.initialColor});
+
+  final Color initialColor;
+
+  @override
+  State<_ColorPickerBody> createState() => _ColorPickerBodyState();
+}
+
+class _ColorPickerBodyState extends State<_ColorPickerBody> {
+  late Color _selected = widget.initialColor.withValues(alpha: 1);
+
+  static const EdgeInsets _buttonPadding = EdgeInsets.symmetric(
+    horizontal: 16,
+    vertical: 6,
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 360,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          ExcludeSemantics(
+            child: MiuixColorPalette(
+              key: const ValueKey<String>('bg-color-picker'),
+              color: _selected,
+              onColorChanged: (Color color) {
+                setState(() => _selected = color.withValues(alpha: 1));
+              },
+            ),
+          ),
+          const SizedBox(height: 16),
+          Row(
             children: <Widget>[
-              MiuixTextButton(
-                '取消',
-                key: const ValueKey<String>('bg-color-cancel'),
-                onPressed: () => Navigator.of(context).pop(),
+              Expanded(
+                child: MiuixButton(
+                  key: const ValueKey<String>('bg-color-cancel'),
+                  onPressed: () => Navigator.of(context).pop(),
+                  minHeight: 36,
+                  cornerRadius: 12,
+                  insideMargin: _buttonPadding,
+                  child: const MiuixText('取消'),
+                ),
               ),
-              const SizedBox(width: 8),
-              MiuixButton(
-                key: const ValueKey<String>('bg-color-confirm'),
-                onPressed: () => Navigator.of(context).pop(_selected),
-                colors: MiuixButtonDefaults.buttonColorsPrimary(context),
-                child: const MiuixText('确定'),
+              const SizedBox(width: 12),
+              Expanded(
+                child: MiuixButton(
+                  key: const ValueKey<String>('bg-color-confirm'),
+                  onPressed: () => Navigator.of(context).pop(_selected),
+                  minHeight: 36,
+                  cornerRadius: 12,
+                  insideMargin: _buttonPadding,
+                  colors: MiuixButtonDefaults.buttonColorsPrimary(context),
+                  child: const MiuixText('确定'),
+                ),
               ),
             ],
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }

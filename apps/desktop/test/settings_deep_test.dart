@@ -442,7 +442,7 @@ void main() {
       await _drainSnack(tester);
     });
 
-    testWidgets('自定义背景色：非法 hex 报错 → 合法输入确定后生效',
+    testWidgets('自定义背景色：取色器选色后确定并生效',
         (WidgetTester tester) async {
       _useLargeViewport(tester);
       final WbThemeState theme = WbThemeState();
@@ -455,19 +455,11 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey<String>('bg-color-dialog')), findsOneWidget);
 
-      await tester.enterText(
-        find.byKey(const ValueKey<String>('bg-hex-field')),
-        'zzzzzz',
+      final MiuixColorPalette picker = tester.widget<MiuixColorPalette>(
+        find.byKey(const ValueKey<String>('bg-color-picker')),
       );
+      picker.onColorChanged(const Color(0xFF123456));
       await tester.pump();
-      expect(find.byKey(const ValueKey<String>('bg-hex-error')), findsOneWidget);
-
-      await tester.enterText(
-        find.byKey(const ValueKey<String>('bg-hex-field')),
-        '123456',
-      );
-      await tester.pump();
-      expect(find.byKey(const ValueKey<String>('bg-hex-error')), findsNothing);
 
       await tester.tap(find.byKey(const ValueKey<String>('bg-color-confirm')));
       await tester.pumpAndSettle();
@@ -511,7 +503,10 @@ void main() {
         find.byKey(const ValueKey<String>('background-pattern-color')),
       );
       await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey<String>('bg-swatch-#E8F0FE')));
+      final MiuixColorPalette patternPicker = tester.widget<MiuixColorPalette>(
+        find.byKey(const ValueKey<String>('bg-color-picker')),
+      );
+      patternPicker.onColorChanged(const Color(0xFFE8F0FE));
       await tester.pump();
       await tester.tap(find.byKey(const ValueKey<String>('bg-color-confirm')));
       await tester.pumpAndSettle();
