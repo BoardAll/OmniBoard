@@ -5,6 +5,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_miuix/miuix.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import 'package:whiteboard_icons/icons.dart';
@@ -112,42 +113,71 @@ class _BoardListPageState extends State<BoardListPage> {
   @override
   Widget build(BuildContext context) {
     final WbThemeColors colors = context.wbColors;
+    final MiuixThemeData miuix =
+        MiuixThemeData.of(Theme.of(context).brightness);
     // 本地已保存文件列表（持久化；未挂载文件服务时为空）。
     final List<WbRecentBoardEntry> recentFiles =
         context.watch<WbBoardFileService?>()?.recentBoards ??
             const <WbRecentBoardEntry>[];
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('我的白板'),
-        backgroundColor: colors.surface,
-        actions: <Widget>[
-          IconButton(
-            tooltip: '打开本地白板',
-            icon: const Icon(LinearIcons.folder),
-            onPressed: () => unawaited(_openLocalBoard()),
+    return MiuixTheme(
+      data: miuix,
+      child: Scaffold(
+        backgroundColor: colors.canvas,
+        floatingActionButton: MiuixFloatingActionButton(
+          onPressed: _createBoard,
+          child: MiuixContentColor(
+            color: miuix.colors.onPrimary,
+            child: const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 16),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  MiuixIcon(icon: LinearIcons.add),
+                  SizedBox(width: 8),
+                  MiuixText('新建白板'),
+                ],
+              ),
+            ),
           ),
-          const _EngineStatusChip(),
-          IconButton(
-            tooltip: '设置',
-            icon: const Icon(LinearIcons.settings),
-            onPressed: () => context.push(WbRoutes.settingsPath),
-          ),
-          IconButton(
-            tooltip: '退出应用',
-            icon: const Icon(LinearIcons.power),
-            onPressed: () => unawaited(_exitApp()),
-          ),
-          const SizedBox(width: 8),
-        ],
+        ),
+        body: Column(
+          children: <Widget>[
+            MiuixSmallTopAppBar(
+              title: '我的白板',
+              color: colors.surface,
+              actions: <Widget>[
+                Tooltip(
+                  message: '打开本地白板',
+                  child: MiuixIconButton(
+                    onPressed: () => unawaited(_openLocalBoard()),
+                    child: const MiuixIcon(icon: LinearIcons.folder),
+                  ),
+                ),
+                const _EngineStatusChip(),
+                Tooltip(
+                  message: '设置',
+                  child: MiuixIconButton(
+                    onPressed: () => context.push(WbRoutes.settingsPath),
+                    child: const MiuixIcon(icon: LinearIcons.settings),
+                  ),
+                ),
+                Tooltip(
+                  message: '退出应用',
+                  child: MiuixIconButton(
+                    onPressed: () => unawaited(_exitApp()),
+                    child: const MiuixIcon(icon: LinearIcons.power),
+                  ),
+                ),
+              ],
+            ),
+            Expanded(
+              child: _recent.isEmpty && recentFiles.isEmpty
+                  ? const _EmptyState()
+                  : _buildList(colors, recentFiles),
+            ),
+          ],
+        ),
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _createBoard,
-        icon: const Icon(LinearIcons.add),
-        label: const Text('新建白板'),
-      ),
-      body: _recent.isEmpty && recentFiles.isEmpty
-          ? const _EmptyState()
-          : _buildList(colors, recentFiles),
     );
   }
 
@@ -156,32 +186,32 @@ class _BoardListPageState extends State<BoardListPage> {
     List<WbRecentBoardEntry> recentFiles,
   ) {
     return ListView(
-      padding: const EdgeInsets.all(24),
+      padding: const EdgeInsets.fromLTRB(24, 16, 24, 88),
       children: <Widget>[
         if (recentFiles.isNotEmpty) ...<Widget>[
-          _sectionHeader('本地文件', colors),
+          _sectionHeader('本地文件'),
           for (final WbRecentBoardEntry entry in recentFiles)
             _fileCard(entry, colors),
         ],
         if (recentFiles.isNotEmpty && _recent.isNotEmpty)
           const SizedBox(height: 8),
         if (_recent.isNotEmpty) ...<Widget>[
-          if (recentFiles.isNotEmpty) _sectionHeader('本次会话', colors),
+          if (recentFiles.isNotEmpty) _sectionHeader('本次会话'),
           for (final WbRecentBoard board in _recent) _boardCard(board, colors),
         ],
       ],
     );
   }
 
-  Widget _sectionHeader(String title, WbThemeColors colors) {
+  Widget _sectionHeader(String title) {
+    final MiuixThemeData theme = MiuixTheme.of(context);
     return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Text(
+      padding: const EdgeInsets.only(bottom: 8, left: 4),
+      child: MiuixText(
         title,
-        style: Theme.of(context)
-            .textTheme
-            .titleSmall
-            ?.copyWith(color: colors.icon),
+        style: theme.textStyles.subtitle.copyWith(
+          color: theme.colors.onSurfaceVariantSummary,
+        ),
       ),
     );
   }
@@ -190,62 +220,79 @@ class _BoardListPageState extends State<BoardListPage> {
   Widget _fileCard(WbRecentBoardEntry entry, WbThemeColors colors) {
     final String name =
         entry.name.isNotEmpty ? entry.name : _fileName(entry.path);
-    return Card(
-      color: colors.surface,
-      margin: const EdgeInsets.only(bottom: 12),
-      child: ListTile(
-        leading: Icon(LinearIcons.folder, color: colors.primary),
-        title: Text(name),
-        subtitle: Text(
-          _fileSubtitle(entry),
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: MiuixCard(
+        colors: MiuixCardColors(
+          color: colors.surface,
+          contentColor: MiuixTheme.of(context).colors.onSurface,
         ),
-        trailing: PopupMenuButton<String>(
-          tooltip: '更多',
-          onSelected: (String value) {
-            if (value == 'open') {
-              _openFile(entry.path);
-            } else if (value == 'remove') {
-              _files()?.removeRecentBoard(entry.path);
-            }
-          },
-          itemBuilder: (BuildContext context) =>
-              const <PopupMenuEntry<String>>[
-            PopupMenuItem<String>(value: 'open', child: Text('打开')),
-            PopupMenuItem<String>(value: 'remove', child: Text('从列表移除')),
+        child: MiuixBasicComponent(
+          title: name,
+          summary: _fileSubtitle(entry),
+          startAction: MiuixIcon(
+            icon: LinearIcons.folder,
+            tint: colors.primary,
+          ),
+          onClick: () => _openFile(entry.path),
+          endActions: <Widget>[
+            MiuixWindowIconCascadingDropdownMenu(
+              entry: MiuixDropdownEntry(
+                items: <MiuixDropdownItem>[
+                  MiuixDropdownItem(
+                    text: '打开',
+                    onClick: () => _openFile(entry.path),
+                  ),
+                  MiuixDropdownItem(
+                    text: '从列表移除',
+                    onClick: () => _files()?.removeRecentBoard(entry.path),
+                  ),
+                ],
+              ),
+              child: const MiuixIcon(icon: LinearIcons.more),
+            ),
           ],
         ),
-        onTap: () => _openFile(entry.path),
       ),
     );
   }
 
   /// 本次会话新建白板卡片（原内存列表行为保持不变）。
   Widget _boardCard(WbRecentBoard board, WbThemeColors colors) {
-    return Card(
-      color: colors.surface,
-      margin: const EdgeInsets.only(bottom: 12),
-      child: ListTile(
-        leading: Icon(LinearIcons.page, color: colors.primary),
-        title: Text(board.name),
-        subtitle: Text(_relativeTime(board.updatedAt)),
-        trailing: PopupMenuButton<String>(
-          tooltip: '更多',
-          onSelected: (String value) {
-            if (value == 'open') {
-              context.push(WbRoutes.boardPath(board.id));
-            } else if (value == 'remove') {
-              _removeBoard(board);
-            }
-          },
-          itemBuilder: (BuildContext context) =>
-              const <PopupMenuEntry<String>>[
-            PopupMenuItem<String>(value: 'open', child: Text('打开')),
-            PopupMenuItem<String>(value: 'remove', child: Text('从列表移除')),
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: MiuixCard(
+        colors: MiuixCardColors(
+          color: colors.surface,
+          contentColor: MiuixTheme.of(context).colors.onSurface,
+        ),
+        child: MiuixBasicComponent(
+          title: board.name,
+          summary: _relativeTime(board.updatedAt),
+          startAction: MiuixIcon(
+            icon: LinearIcons.page,
+            tint: colors.primary,
+          ),
+          onClick: () => context.push(WbRoutes.boardPath(board.id)),
+          endActions: <Widget>[
+            MiuixWindowIconCascadingDropdownMenu(
+              entry: MiuixDropdownEntry(
+                items: <MiuixDropdownItem>[
+                  MiuixDropdownItem(
+                    text: '打开',
+                    onClick: () =>
+                        context.push(WbRoutes.boardPath(board.id)),
+                  ),
+                  MiuixDropdownItem(
+                    text: '从列表移除',
+                    onClick: () => _removeBoard(board),
+                  ),
+                ],
+              ),
+              child: const MiuixIcon(icon: LinearIcons.more),
+            ),
           ],
         ),
-        onTap: () => context.push(WbRoutes.boardPath(board.id)),
       ),
     );
   }
@@ -283,21 +330,27 @@ class _EmptyState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final WbThemeColors colors = context.wbColors;
+    final MiuixThemeData theme = MiuixTheme.of(context);
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: <Widget>[
-          Icon(LinearIcons.folder, size: 56, color: colors.border),
+          MiuixIcon(
+            icon: LinearIcons.folder,
+            size: 56,
+            tint: theme.colors.onSurfaceVariantSummary,
+          ),
           const SizedBox(height: 16),
-          Text('还没有白板', style: Theme.of(context).textTheme.titleMedium),
+          MiuixText(
+            '还没有白板',
+            style: theme.textStyles.title3,
+          ),
           const SizedBox(height: 8),
-          Text(
+          MiuixText(
             '点击右下角「新建白板」开始创作',
-            style: Theme.of(context)
-                .textTheme
-                .bodySmall
-                ?.copyWith(color: colors.icon),
+            style: theme.textStyles.body2.copyWith(
+              color: theme.colors.onSurfaceVariantSummary,
+            ),
           ),
         ],
       ),
@@ -313,21 +366,33 @@ class _EngineStatusChip extends StatelessWidget {
   Widget build(BuildContext context) {
     final WbFfiService ffi = context.read<WbFfiService>();
     final bool available = ffi.isAvailable;
-    final WbThemeColors colors = context.wbColors;
+    final MiuixThemeData theme = MiuixTheme.of(context);
     return Tooltip(
       message: available ? '引擎已加载：${ffi.loadedFrom}' : '引擎未加载（演示模式）',
-      child: Chip(
-        avatar: Icon(
-          available ? LinearIcons.cloud : LinearIcons.offline,
-          size: 16,
+      child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: ShapeDecoration(
+          color: theme.colors.surfaceContainer,
+          shape: const MiuixSquircleBorder(cornerRadius: 12),
         ),
-        label: Text(available ? '引擎就绪' : '演示模式'),
-        labelStyle: Theme.of(context)
-            .textTheme
-            .bodySmall
-            ?.copyWith(color: colors.icon),
-        side: BorderSide(color: colors.border),
-        backgroundColor: colors.surface,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            MiuixIcon(
+              icon: available ? LinearIcons.cloud : LinearIcons.offline,
+              size: 16,
+              tint: theme.colors.onSurfaceVariantSummary,
+            ),
+            const SizedBox(width: 6),
+            MiuixText(
+              available ? '引擎就绪' : '演示模式',
+              style: theme.textStyles.footnote1.copyWith(
+                color: theme.colors.onSurfaceVariantSummary,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

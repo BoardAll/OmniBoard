@@ -141,6 +141,8 @@ Future<Color?> showWbColorPicker(
 }
 
 /// 颜色选择面板（预设 12 色 + 主题色 + 自定义输入）。
+///
+/// [showChrome] 为 false 时仅渲染内容（无外框 / 阴影），便于嵌入对话框等宿主。
 class WbColorPickerPanel extends StatelessWidget {
   const WbColorPickerPanel({
     super.key,
@@ -149,6 +151,10 @@ class WbColorPickerPanel extends StatelessWidget {
     this.current,
     this.themeColor,
     this.palette = WbToolbarPalette.presets,
+    this.showChrome = true,
+    this.showTitle = true,
+    this.showCustomInput = true,
+    this.showSelection = true,
   });
 
   /// 选色回调。
@@ -166,21 +172,26 @@ class WbColorPickerPanel extends StatelessWidget {
   /// 预设色板。
   final List<Color> palette;
 
+  /// 是否绘制外框、边框与阴影。
+  final bool showChrome;
+
+  /// 是否显示标题文字。
+  final bool showTitle;
+
+  /// 是否显示自定义十六进制输入行。
+  final bool showCustomInput;
+
+  /// 是否在色点上显示选中圈。
+  final bool showSelection;
+
   @override
   Widget build(BuildContext context) {
     final WbThemeColors colors = context.wbColors;
-    return Container(
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: colors.elevated,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: colors.cardBorder),
-        boxShadow: wbToolbarShadow,
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
+    final Widget body = Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        if (showTitle) ...<Widget>[
           Text(
             title,
             style: Theme.of(context)
@@ -189,44 +200,59 @@ class WbColorPickerPanel extends StatelessWidget {
                 ?.copyWith(color: colors.icon.withValues(alpha: 0.75)),
           ),
           const SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
+        ],
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: <Widget>[
+            for (int i = 0; i < palette.length; i++)
+              _SwatchDot(
+                key: ValueKey<String>('wb-color-swatch-$i'),
+                color: palette[i],
+                selected: showSelection && current == palette[i],
+                onTap: () => onPick(palette[i]),
+              ),
+          ],
+        ),
+        if (themeColor != null) ...<Widget>[
+          const SizedBox(height: 10),
+          Row(
             children: <Widget>[
-              for (int i = 0; i < palette.length; i++)
-                _SwatchDot(
-                  key: ValueKey<String>('wb-color-swatch-$i'),
-                  color: palette[i],
-                  selected: current == palette[i],
-                  onTap: () => onPick(palette[i]),
-                ),
+              _SwatchDot(
+                key: const ValueKey<String>('wb-color-swatch-theme'),
+                color: themeColor!,
+                selected: showSelection && current == themeColor,
+                onTap: () => onPick(themeColor!),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                '主题色',
+                style: Theme.of(context)
+                    .textTheme
+                    .labelSmall
+                    ?.copyWith(color: colors.icon),
+              ),
             ],
           ),
-          if (themeColor != null) ...<Widget>[
-            const SizedBox(height: 10),
-            Row(
-              children: <Widget>[
-                _SwatchDot(
-                  key: const ValueKey<String>('wb-color-swatch-theme'),
-                  color: themeColor!,
-                  selected: current == themeColor,
-                  onTap: () => onPick(themeColor!),
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  '主题色',
-                  style: Theme.of(context)
-                      .textTheme
-                      .labelSmall
-                      ?.copyWith(color: colors.icon),
-                ),
-              ],
-            ),
-          ],
+        ],
+        if (showCustomInput) ...<Widget>[
           const SizedBox(height: 10),
           _CustomColorRow(onSubmit: onPick),
         ],
+      ],
+    );
+    if (!showChrome) {
+      return body;
+    }
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: colors.elevated,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: colors.cardBorder),
+        boxShadow: wbToolbarShadow,
       ),
+      child: body,
     );
   }
 }

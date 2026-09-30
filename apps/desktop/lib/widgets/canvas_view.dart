@@ -26,6 +26,7 @@ import 'package:whiteboard_theme/theme.dart';
 import '../state/page_state.dart';
 import '../state/selection_state.dart';
 import 'canvas/background_painter.dart';
+import 'canvas/canvas_capture.dart';
 import 'canvas/canvas_controller.dart';
 import 'canvas/canvas_painter.dart';
 import 'canvas/canvas_text_editor.dart';
@@ -298,6 +299,7 @@ class _CanvasSurface extends StatelessWidget {
         onPointerPanZoomEnd: (PointerPanZoomEndEvent event) =>
             controller.handlePanZoomEnd(),
         child: RepaintBoundary(
+          key: WbCanvasCapture.boundaryKey,
           child: CustomPaint(
             painter: WbCanvasPainter(
               controller: controller,

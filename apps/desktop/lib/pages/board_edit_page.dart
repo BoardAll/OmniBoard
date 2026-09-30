@@ -854,14 +854,22 @@ class _BoardEditPageState extends State<BoardEditPage> {
                       right: 0,
                       bottom: 16,
                       child: Center(
-                        child: FloatingToolbar(
-                          // 受控高亮：与画布工具同步（含创建完成 / 圆盘切换
-                          // 回选择等程序化切换）。
-                          activeTool: _canvas.tool.id,
-                          onToolChanged: _applyRadialTool,
-                          onCommand: _handleToolbarCommand,
-                          onUndo: _canvas.undo,
-                          onRedo: _canvas.redo,
+                        child: ListenableBuilder(
+                          listenable: _canvas,
+                          builder: (BuildContext context, Widget? child) {
+                            return FloatingToolbar(
+                              // 受控高亮：与画布工具同步（含创建完成 / 圆盘切换
+                              // 回选择等程序化切换）。
+                              activeTool: _canvas.tool.id,
+                              onToolChanged: _applyRadialTool,
+                              onCommand: _handleToolbarCommand,
+                              onUndo: _canvas.undo,
+                              onRedo: _canvas.redo,
+                              penColor: Color(_canvas.penColor),
+                              onPenColorChanged: (Color color) =>
+                                  _canvas.setPenColor(color.toARGB32()),
+                            );
+                          },
                         ),
                       ),
                     ),
