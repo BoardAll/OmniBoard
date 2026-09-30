@@ -202,3 +202,25 @@ TEST_CASE("crdt reports unknown documents and arguments", "[crdt]") {
   REQUIRE(JsonBool(unknown, "ok", false));
   REQUIRE(JsonContains(unknown, "NotFound"));
 }
+
+TEST_CASE("crdt applyLocal returns the normalized op for sync", "[crdt]") {
+  Create();
+  const std::string applied = ApplyLocal(
+      "crdt-1", "{\"key\":\"title\",\"value\":\"A\",\"timestamp\":1234}");
+  REQUIRE(JsonBool(applied, "applied", true));
+  REQUIRE(JsonNumber(applied, "seq") == 1.0);
+  // M1 T1.1: the full normalized op rides along for the sync pipeline.
+  REQUIRE(JsonContains(applied, "\"op\":{\"actor\":\"local\""));
+  REQUIRE(JsonContains(applied, "\"key\":\"title\""));
+  REQUIRE(JsonContains(applied, "\"origin\":\"local\""));
+  REQUIRE(JsonContains(applied, "\"seq\":1"));
+  REQUIRE(JsonContains(applied, "\"timestamp\":1234"));
+  REQUIRE(JsonContains(applied, "\"value\":\"A\""));
+
+  // A stale write still ships its (immutable) op even when applied=false.
+  const std::string stale = ApplyLocal(
+      "crdt-1", "{\"key\":\"title\",\"value\":\"B\",\"timestamp\":1000}");
+  REQUIRE(JsonBool(stale, "applied", false));
+  REQUIRE(JsonContains(stale, "\"op\":{"));
+  REQUIRE(JsonContains(stale, "\"value\":\"B\""));
+}

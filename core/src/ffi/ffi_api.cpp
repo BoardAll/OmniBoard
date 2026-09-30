@@ -826,6 +826,62 @@ WB_API const char* wb_sync_set_offline(int offline) {
 }
 
 // ---------------------------------------------------------------------------
+// M1 collaboration data plane — thin forwards, see wb.h (Sync / CRDT).
+// ---------------------------------------------------------------------------
+WB_API const char* wb_sync_join(const char* boardId, const char* pageId) {
+  nlohmann::json args;
+  args["boardId"] = J(boardId);
+  if (pageId != nullptr && *pageId != '\0') {
+    args["pageId"] = J(pageId);
+  }
+  return Handoff(Call("sync", "join", args));
+}
+
+WB_API const char* wb_sync_send_operation(const char* opJson) {
+  nlohmann::json args;
+  if (opJson != nullptr && *opJson != '\0') {
+    args["op"] = nlohmann::json::parse(opJson, nullptr, false);
+  }
+  return Handoff(Call("sync", "sendOperation", args));
+}
+
+WB_API const char* wb_sync_flush() {
+  return Handoff(Call("sync", "sync", nlohmann::json::object()));
+}
+
+WB_API const char* wb_sync_events() {
+  return Handoff(Call("sync", "events", nlohmann::json::object()));
+}
+
+WB_API const char* wb_sync_send_preview(const char* previewJson) {
+  nlohmann::json args;
+  if (previewJson != nullptr && *previewJson != '\0') {
+    args["preview"] = nlohmann::json::parse(previewJson, nullptr, false);
+  }
+  return Handoff(Call("sync", "sendPreview", args));
+}
+
+WB_API const char* wb_crdt_create(const char* docId, const char* actor) {
+  nlohmann::json args;
+  if (docId != nullptr && *docId != '\0') {
+    args["docId"] = J(docId);
+  }
+  if (actor != nullptr && *actor != '\0') {
+    args["actor"] = J(actor);
+  }
+  return Handoff(Call("crdt", "create", args));
+}
+
+WB_API const char* wb_crdt_apply_local(const char* docId, const char* opJson) {
+  nlohmann::json args;
+  args["docId"] = J(docId);
+  if (opJson != nullptr && *opJson != '\0') {
+    args["operation"] = nlohmann::json::parse(opJson, nullptr, false);
+  }
+  return Handoff(Call("crdt", "applyLocal", args));
+}
+
+// ---------------------------------------------------------------------------
 // Permission / audit — domains "permission" / "audit"
 // ---------------------------------------------------------------------------
 WB_API const char* wb_permission_check(const char* userId, const char* boardId,

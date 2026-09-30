@@ -177,7 +177,7 @@ abstract final class WbBoardFileCodec {
       'background': page.background,
       'elements': <Map<String, dynamic>>[
         for (final WbCanvasElement element in page.elements)
-          _encodeElement(element),
+          encodeElement(element),
       ],
     };
   }
@@ -189,7 +189,7 @@ abstract final class WbBoardFileCodec {
       for (final Object? item in rawElements) {
         if (item is Map) {
           final WbCanvasElement element =
-              _decodeElement(Map<String, dynamic>.from(item));
+              decodeElement(Map<String, dynamic>.from(item));
           if (element.id.isNotEmpty) {
             elements.add(element);
           }
@@ -208,7 +208,7 @@ abstract final class WbBoardFileCodec {
     );
   }
 
-  static Map<String, dynamic> _encodeElement(WbCanvasElement element) {
+  static Map<String, dynamic> encodeElement(WbCanvasElement element) {
     final Map<String, dynamic> json = element.toJson();
     final Object? payload = element.payload;
     if (payload != null) {
@@ -220,7 +220,7 @@ abstract final class WbBoardFileCodec {
     return json;
   }
 
-  static WbCanvasElement _decodeElement(Map<String, dynamic> json) {
+  static WbCanvasElement decodeElement(Map<String, dynamic> json) {
     double readDouble(Object? value, double fallback) =>
         value is num ? value.toDouble() : fallback;
     String readString(Object? value, String fallback) =>

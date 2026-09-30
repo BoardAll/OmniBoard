@@ -46,3 +46,7 @@ app.*.map.json
 
 # Widget Preview related
 .widget_preview/
+
+# T0.2 POC workaround：Windows 下 flutter test --platform chrome 需自备 canvaskit 资源（约 16MB，
+# 可由脚本从 Flutter SDK 的 flutter_web_sdk/canvaskit 重建），不入库。
+test/canvaskit/

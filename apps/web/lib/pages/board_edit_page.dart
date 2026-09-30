@@ -4,6 +4,10 @@
 /// 首帧后调用 [WbCoreService.initialize] —— 注入 `wb_core.js`、实例化
 /// `wb_core.wasm`；加载失败 / 产物缺失（Wave 4 前占位脚本）时不阻塞 UI，
 /// 画布降级为内置演示视图（[WbDemoCanvas]），状态见 [WbCoreStatusChip]。
+///
+/// W1 协作层（T1.8）：首帧后连接 realtime 服务并加入当前白板房间
+/// （失败不阻塞 UI）；AppBar 展示连接状态（[WbCollabStatusChip]）与
+/// 参与者入口（[WbParticipantsButton] → endDrawer [WbParticipantsPanel]）。
 library;
 
 import 'dart:async';
@@ -16,7 +20,11 @@ import 'package:whiteboard_theme/theme.dart';
 import 'package:whiteboard_ui_kit/ui_kit.dart';
 import 'package:whiteboard_web_platform/whiteboard_web_platform.dart';
 
+import '../services/realtime_service.dart';
 import '../services/wb_core_service.dart';
+import '../widgets/collab/collab_status_chip.dart';
+import '../widgets/collab/participants_button.dart';
+import '../widgets/collab/participants_panel.dart';
 import '../widgets/core_status_chip.dart';
 import '../widgets/demo_canvas.dart';
 
@@ -43,16 +51,30 @@ class BoardEditPage extends StatefulWidget {
 }
 
 class _BoardEditPageState extends State<BoardEditPage> {
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+  late final WbRealtimeService _realtime;
+
   @override
   void initState() {
     super.initState();
+    _realtime = context.read<WbRealtimeService>();
     // 首帧后按需加载 WASM 核心：失败降级演示画布，不阻塞 UI。
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) {
         return;
       }
       unawaited(context.read<WbCoreService>().initialize());
+      // W1 协作层：连接 + 加入当前房间（幂等；失败不阻塞 UI）。
+      unawaited(_realtime.connect(kWbRealtimeEndpoint));
+      unawaited(_realtime.joinBoard(widget.boardId));
     });
+  }
+
+  @override
+  void dispose() {
+    // 退出页面：离开房间（服务端广播 left 并关闭连接，§5.14）。
+    unawaited(_realtime.leave());
+    super.dispose();
   }
 
   void _leave() => context.pop();
@@ -61,6 +83,8 @@ class _BoardEditPageState extends State<BoardEditPage> {
   Widget build(BuildContext context) {
     final WbThemeColors colors = context.wbColors;
     return Scaffold(
+      key: _scaffoldKey,
+      endDrawer: const WbParticipantsPanel(),
       appBar: AppBar(
         backgroundColor: colors.surface,
         leading: IconButton(
@@ -80,11 +104,16 @@ class _BoardEditPageState extends State<BoardEditPage> {
             ),
             const SizedBox(width: 12),
             const WbCoreStatusChip(),
+            const SizedBox(width: 8),
+            const WbCollabStatusChip(),
           ],
         ),
-        actions: const <Widget>[
-          _FullscreenButton(),
-          SizedBox(width: 8),
+        actions: <Widget>[
+          WbParticipantsButton(
+            onPressed: () => _scaffoldKey.currentState?.openEndDrawer(),
+          ),
+          const _FullscreenButton(),
+          const SizedBox(width: 8),
         ],
       ),
       body: LayoutBuilder(

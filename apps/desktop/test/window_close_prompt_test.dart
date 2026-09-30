@@ -30,7 +30,7 @@ void main() {
   late WbBoardFileService fileService;
   late WbCanvasController canvas;
   late WbThemeState theme;
-  late WbSyncService sync;
+  late WbCollabService sync;
   late int destroyed;
 
   String savedPath() => '${tempDir.path}${Platform.pathSeparator}saved.wbd';
@@ -59,7 +59,7 @@ void main() {
     fileService.bindBoard(board: boardState, pages: pageState, canvas: canvas);
 
     theme = WbThemeState();
-    sync = WbSyncService();
+    sync = WbCollabService();
   });
 
   tearDown(() {
@@ -80,7 +80,7 @@ void main() {
     await tester.pumpWidget(WhiteboardApp(
       ffiService: _demoFfi(),
       themeState: theme,
-      syncService: sync,
+      collabService: sync,
       shortcutService: WbShortcutService(),
       boardFileService: fileService,
       windowDestroyer: () async {

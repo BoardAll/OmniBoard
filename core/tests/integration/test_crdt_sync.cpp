@@ -8,7 +8,8 @@
 //      applied=false 且状态不变）。
 //   3. merge 交换律 + 幂等；encodeState/decodeState 状态往返一致。
 //   4. SyncManager 队列链路：连接 → 离线排队 → queue 查看 → 离线同步
-//      被拒 → 恢复在线 → sync 排空 → 状态归零 → 断开。
+//      被拒 → 恢复在线 → sync 排空 → 状态归零 → 断开（M1 用
+//      FakeTransport 测试替身，立即握手成功，语义与 M0 占位传输一致）。
 //
 // 注：crdt 无 FFI 导出，全部走 wb::invokeDomain；sync 混合 FFI 与
 // invokeDomain。同步状态是进程级单例，本文件仅一个用例触碰 sync，
@@ -20,6 +21,7 @@
 
 #include <string>
 
+#include "../unit/sync/fake_transport.h"
 #include "support/test_probe.h"
 
 namespace {
@@ -182,13 +184,15 @@ TEST_CASE("crdt: merge commutative, idempotent, state roundtrip",
 
 TEST_CASE("sync: offline queue drains after reconnect",
           "[integration][sync]") {
-  // 1) 连接（占位传输立即握手成功）。
+  // 1) 连接（M1：FakeTransport 测试替身立即握手成功，语义与 M0 占位
+  //    传输一致；真实 Socket.IO 链路见 socketio_transport + POC 用例）。
+  wb::sync::test::InstallFakeTransport();
   const std::string connected =
       TakeAndFree(wb_sync_connect("ws://localhost:9000", "token-it"));
   REQUIRE(JsonBool(connected, "ok", true));
   REQUIRE(JsonBool(connected, "connected", true));
   REQUIRE(JsonString(connected, "endpoint") == "ws://localhost:9000");
-  REQUIRE(JsonString(connected, "transport") == "websocket");
+  REQUIRE(JsonString(connected, "transport") == "socketio");
 
   // 2) 离线：操作进入本地队列，sync 被推迟。
   REQUIRE(JsonBool(TakeAndFree(wb_sync_set_offline(1)), "offline", true));

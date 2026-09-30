@@ -1,3 +1,5 @@
+#pragma once
+
 // sync/providers.h — reserved collaboration provider interfaces (1.7).
 // Owns: core/src/sync.
 //
@@ -8,6 +10,10 @@
 // integration, recording) can provide real implementations without
 // touching call sites. `ReservedProviders()` feeds the sync domain's
 // "capabilities" op so the UI can report what is not implemented yet.
+//
+// M1 exception: the Transport seam is live — SocketIOTransport
+// (core/src/sync/socketio_transport.{h,cpp}) implements it over sioxx, so
+// its descriptor below reports implemented=true while the rest stay false.
 
 #include <string>
 #include <vector>
@@ -100,7 +106,7 @@ inline std::vector<ProviderDescriptor> ReservedProviders() {
        {"startSession", "endSession", "syncBoard", "sendEvent"},
        false},
       {"Transport", {"connect", "disconnect", "getState", "send", "getType"},
-       false},
+       true},  // M1: Socket.IO (sioxx) transport is live
       {"RecordingProvider",
        {"start", "stop", "isRecording", "listRecordings"},
        false},

@@ -27,6 +27,12 @@
 #                        the output of the monorepo `windows-x64` CMake preset
 #                        (Visual Studio multi-config layout: <binaryDir>/bin/
 #                        <Config>). Build it with tools\scripts\build_cpp.ps1.
+#   WB_CORE_DLL_FALLBACK Optional fallback source path used when the
+#                        per-config default does not exist:
+#                        <repo>/build/windows-x64/bin/Release/wb_core.dll.
+#                        The `windows-x64` preset builds Release only, so
+#                        Debug/Profile flutter builds still deploy the
+#                        Release DLL instead of skipping deployment.
 #   WB_CORE_DLL_DEST     Destination directory: the runner build output dir
 #                        (next to whiteboard_desktop.exe).
 #
@@ -59,6 +65,10 @@ elseif(DEFINED ENV{WB_CORE_DLL} AND NOT "$ENV{WB_CORE_DLL}" STREQUAL "" AND EXIS
 elseif(DEFINED WB_CORE_DLL_DEFAULT AND NOT "${WB_CORE_DLL_DEFAULT}" STREQUAL "" AND EXISTS "${WB_CORE_DLL_DEFAULT}")
   # 3. Default: output of the `windows-x64` preset for the current config.
   set(_wb_core_source "${WB_CORE_DLL_DEFAULT}")
+elseif(DEFINED WB_CORE_DLL_FALLBACK AND NOT "${WB_CORE_DLL_FALLBACK}" STREQUAL "" AND EXISTS "${WB_CORE_DLL_FALLBACK}")
+  # 4. Release fallback: the same preset builds Release only, so Debug and
+  #    Profile flutter builds deploy the Release DLL rather than skipping.
+  set(_wb_core_source "${WB_CORE_DLL_FALLBACK}")
 endif()
 
 # The destination must be a directory (the runner output dir), not a file.
@@ -73,7 +83,7 @@ endif()
 if(_wb_core_source STREQUAL "")
   message(WARNING
     "[wb_core] wb_core.dll not found; skipping deployment (the app will build without the native core).\n"
-    "  Checked: WB_CORE_DLL='${WB_CORE_DLL}' WB_CORE_DLL_DEFAULT='${WB_CORE_DLL_DEFAULT}'\n"
+    "  Checked: WB_CORE_DLL='${WB_CORE_DLL}' WB_CORE_DLL_DEFAULT='${WB_CORE_DLL_DEFAULT}' WB_CORE_DLL_FALLBACK='${WB_CORE_DLL_FALLBACK}'\n"
     "  Build the core first: tools\\scripts\\build_cpp.ps1  (or set the WB_CORE_DLL environment variable).")
   return()
 endif()

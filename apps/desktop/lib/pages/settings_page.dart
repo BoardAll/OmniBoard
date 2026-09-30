@@ -80,11 +80,10 @@ class _SettingsPageState extends State<SettingsPage> {
         _baseUrlController.text = ai.baseUrl;
       }
     }
-    // 回填协作服务地址。
+    // 回填协作服务地址（未配置时预填默认端点，便于直接保存）。
     final String syncUrl = store?.syncServerUrl ?? '';
-    if (syncUrl.isNotEmpty) {
-      _serverController.text = syncUrl;
-    }
+    _serverController.text =
+        syncUrl.isNotEmpty ? syncUrl : WbCollabService.defaultEndpoint;
   }
 
   @override
@@ -315,22 +314,33 @@ class _SettingsPageState extends State<SettingsPage> {
     _snack('AI 提供商已应用：${provider.id}');
   }
 
+  /// 保存协作服务器地址：持久化 + 更新生效端点（下次加入房间使用）。
+  ///
+  /// 白板默认本地模式，本项仅配置「加入互动白板」时连接的服务器；
+  /// 当前若已在房（连接绑定旧地址），先断开再保存，重新加入时按新地址
+  /// 连接。
   Future<void> _applySync() async {
-    final WbSyncService? sync = context.read<WbSyncService?>();
+    final WbCollabService? sync = context.read<WbCollabService?>();
     if (sync == null) {
       _snack('协作服务未挂载（Provider 缺失）');
       return;
     }
     final String url = _serverController.text.trim();
-    if (sync.isOnline) {
-      await sync.disconnect();
-    } else {
-      await sync.connect(url);
-      if (url.isNotEmpty) {
-        // 连接成功即持久化地址，下次启动自动回填。
-        _store?.syncServerUrl = url;
-      }
+    if (url.isEmpty) {
+      _snack('请填写协作服务器地址（如 ${WbCollabService.defaultEndpoint}）');
+      return;
     }
+    _store?.syncServerUrl = url;
+    final bool wasOnline = sync.isOnline;
+    if (wasOnline) {
+      await sync.disconnect();
+    }
+    sync.endpoint = url;
+    _snack(
+      wasOnline
+          ? '地址已保存：$url（已断开当前连接，重新加入互动白板时生效）'
+          : '地址已保存：$url（点击「互动白板」加入房间时生效）',
+    );
     if (mounted) {
       setState(() {});
     }
@@ -345,7 +355,7 @@ class _SettingsPageState extends State<SettingsPage> {
     final WbThemeState? providedTheme = context.watch<WbThemeState?>();
     final WbThemeState theme = providedTheme ?? (_fallbackTheme ??= WbThemeState());
     final WbAiState? ai = context.watch<WbAiState?>();
-    final WbSyncService? sync = context.watch<WbSyncService?>();
+    final WbCollabService? sync = context.watch<WbCollabService?>();
     final WbFfiService? ffi = context.read<WbFfiService?>();
     _syncPlatformBrightness(theme);
 
@@ -722,26 +732,31 @@ class _SettingsPageState extends State<SettingsPage> {
                           label: '协作服务地址',
                           singleLine: true,
                         ),
+                        const SizedBox(height: 8),
+                        Text(
+                          '白板默认本地模式；在编辑页点击「互动白板」输入房间号'
+                          '后，按此地址连接并同步。',
+                          style:
+                              text.bodySmall?.copyWith(color: colors.icon),
+                        ),
                         const SizedBox(height: 12),
                         Row(
                           children: <Widget>[
                             FilledButton.icon(
                               onPressed: () => unawaited(_applySync()),
-                              icon: Icon(
-                                sync?.isOnline == true
-                                    ? LinearIcons.offline
-                                    : LinearIcons.cloud,
-                              ),
-                              label: Text(
-                                sync?.isOnline == true ? '断开连接' : '连接',
-                              ),
+                              icon: const Icon(LinearIcons.save),
+                              label: const Text('保存地址'),
                             ),
                             const SizedBox(width: 12),
-                            Text(
-                              '状态：${sync?.status.label ?? '未挂载'}'
-                              '（真实链路 Wave 3 接入）',
-                              style: text.bodySmall
-                                  ?.copyWith(color: colors.icon),
+                            Expanded(
+                              child: Text(
+                                '状态：${sync?.status.label ?? '未挂载'}'
+                                ' · 生效地址：${sync?.endpoint ?? '-'}',
+                                style: text.bodySmall
+                                    ?.copyWith(color: colors.icon),
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                              ),
                             ),
                           ],
                         ),

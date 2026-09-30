@@ -63,7 +63,7 @@ void main() {
     addTearDown(tester.view.reset);
 
     final WbThemeState theme = WbThemeState();
-    final WbSyncService sync = WbSyncService();
+    final WbCollabService sync = WbCollabService();
     addTearDown(() {
       theme.dispose();
       sync.dispose();
@@ -72,7 +72,7 @@ void main() {
     await tester.pumpWidget(WhiteboardApp(
       ffiService: _demoFfi(),
       themeState: theme,
-      syncService: sync,
+      collabService: sync,
       shortcutService: WbShortcutService(),
       boardFileService: files,
     ));

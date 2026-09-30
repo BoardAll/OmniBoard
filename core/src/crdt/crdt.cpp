@@ -197,6 +197,9 @@ class CrdtDomain : public DomainHandler {
     result["origin"] = "local";
     result["seq"] = op["seq"];
     result["version"] = static_cast<int>(doc->ops.size());
+    // Full normalized op (actor/seq/key/value/timestamp/origin) so the sync
+    // domain can forward local changes verbatim to the realtime server (M1).
+    result["op"] = op;
     return domainOk(result.dump());
   }
 

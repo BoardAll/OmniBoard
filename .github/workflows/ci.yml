@@ -107,6 +107,17 @@ jobs:
           channel: stable
           cache: true
 
+      # Third-party dependency cache: FetchContent sources + the private OpenSSL
+      # prefix. Same key as the other Windows job (keep in sync); no restore-keys —
+      # a dependency-definition change must rebuild from scratch.
+      - name: Cache C++ third-party dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            build/windows-x64/_deps
+            build/windows-x64/third_party/openssl-install
+          key: wb-cpp-deps-${{ runner.os }}-${{ hashFiles('core/third_party/CMakeLists.txt', 'core/third_party/cmake/build_openssl.ps1') }}
+
       - name: Build wb_core (FFI DLL required by integration tests)
         shell: pwsh
         working-directory: ${{ github.workspace }}
@@ -128,6 +139,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # Third-party dependency cache: FetchContent sources + the private OpenSSL
+      # prefix. Same key as the other Windows job (keep in sync); no restore-keys —
+      # a dependency-definition change must rebuild from scratch.
+      - name: Cache C++ third-party dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            build/windows-x64/_deps
+            build/windows-x64/third_party/openssl-install
+          key: wb-cpp-deps-${{ runner.os }}-${{ hashFiles('core/third_party/CMakeLists.txt', 'core/third_party/cmake/build_openssl.ps1') }}
+
       - name: Build wb_core and run ctest
         shell: pwsh
         run: ./tools/scripts/build_cpp.ps1 -RunTests
@@ -147,11 +169,11 @@ jobs:
         with:
           node-version: '18'
 
-      - name: npm test (services/api, services/mcp_server)
+      - name: npm test (services/api, services/mcp_server, services/realtime)
         shell: bash
         run: |
           fail=0
-          for d in services/api services/mcp_server; do
+          for d in services/api services/mcp_server services/realtime; do
             if [ -f "$d/package.json" ]; then
               echo "::group::npm test $d"
               (cd "$d" && npm install --no-audit --no-fund && npm test) || fail=1

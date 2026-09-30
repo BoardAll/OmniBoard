@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:whiteboard_ai/ai_client.dart';
+import 'package:whiteboard_core/wb_core.dart';
 import 'package:whiteboard_desktop/app.dart';
 import 'package:whiteboard_desktop/routes.dart';
 import 'package:whiteboard_desktop/services/ai_service.dart';
@@ -41,6 +42,82 @@ class _FakeProvider extends AiProvider {
     yield const AiTextDelta('你好');
     yield const AiTextDelta('，白板');
     yield const AiStreamDone();
+  }
+}
+
+/// 内存协同引擎（无 DLL 测试用；实现 [WbCollabEngine] 端口）。
+class _FakeCollabEngine implements WbCollabEngine {
+  /// 传输连接状态摆布（`connected` / `disconnected` / `failed` 等）。
+  String transportState = 'connected';
+
+  /// 已发送 op（出口契约断言用）。
+  final List<Map<String, dynamic>> sentOps = <Map<String, dynamic>>[];
+
+  /// 下一次 events() 返回的入站 op（drain 后清空）。
+  List<Map<String, dynamic>> nextOps = <Map<String, dynamic>>[];
+
+  /// disconnect 调用次数。
+  int disconnectCount = 0;
+
+  @override
+  WbSyncStatusData connect({required String endpoint, String? token}) {
+    transportState = 'connected';
+    return status();
+  }
+
+  @override
+  WbSyncStatusData disconnect() {
+    disconnectCount++;
+    transportState = 'disconnected';
+    return status();
+  }
+
+  @override
+  WbSyncStatusData status() => WbSyncStatusData(
+        connected: transportState == 'connected',
+        transportState: transportState,
+      );
+
+  @override
+  WbSyncJoinData join(String boardId, {String? pageId}) =>
+      WbSyncJoinData(boardId: boardId, joined: true, pageId: pageId);
+
+  @override
+  WbSyncSendResult sendOperation(Map<String, dynamic> op) {
+    sentOps.add(op);
+    return const WbSyncSendResult(sent: true, syncedCount: 1);
+  }
+
+  @override
+  WbSyncEventsData events() {
+    final List<Map<String, dynamic>> ops = nextOps;
+    nextOps = <Map<String, dynamic>>[];
+    return WbSyncEventsData(ops: ops, status: status());
+  }
+
+  @override
+  WbSyncFlushData flush() =>
+      const WbSyncFlushData(synced: 0, pendingCount: 0, syncedCount: 0);
+
+  @override
+  WbCrdtCreateData createDocument(String docId, {String? actor}) =>
+      WbCrdtCreateData(docId: docId, actor: actor ?? '', version: 0);
+
+  @override
+  WbCrdtApplyData applyLocal(String docId, Map<String, dynamic> op) {
+    final Map<String, dynamic> applied = <String, dynamic>{
+      'actor': 'fake-actor',
+      'seq': sentOps.length + 1,
+      'origin': 'local',
+      ...op,
+      'timestamp': 0,
+    };
+    return WbCrdtApplyData(
+      applied: true,
+      docId: docId,
+      key: (op['key'] ?? '').toString(),
+      op: applied,
+    );
   }
 }
 
@@ -129,15 +206,20 @@ void main() {
     });
   });
 
-  group('WbSyncService', () {
+  group('WbCollabService（fake 引擎）', () {
     test('离线 → 连接 → 同步 → 断开', () async {
-      final WbSyncService sync = WbSyncService();
+      final _FakeCollabEngine engine = _FakeCollabEngine();
+      final WbCollabService sync = WbCollabService(
+        engine: engine,
+        sleep: (Duration _) async {},
+      );
       expect(sync.status, WbSyncStatus.offline);
       expect(sync.isOnline, isFalse);
 
-      await sync.connect('wss://example.com/board');
+      // fake 引擎初始 transportState=connected → 连接即就绪（不触网）。
+      await sync.connect('http://127.0.0.1:8790');
       expect(sync.status, WbSyncStatus.online);
-      expect(sync.serverUrl, 'wss://example.com/board');
+      expect(sync.endpoint, 'http://127.0.0.1:8790');
 
       await sync.syncNow();
       expect(sync.lastSyncedAt, isNotNull);
@@ -145,6 +227,7 @@ void main() {
 
       await sync.disconnect();
       expect(sync.status, WbSyncStatus.offline);
+      expect(engine.disconnectCount, 1);
       sync.dispose();
     });
   });
@@ -234,7 +317,7 @@ void main() {
       addTearDown(tester.view.reset);
 
       final WbThemeState theme = WbThemeState();
-      final WbSyncService sync = WbSyncService();
+      final WbCollabService sync = WbCollabService();
       addTearDown(() {
         theme.dispose();
         sync.dispose();
@@ -243,7 +326,7 @@ void main() {
       await tester.pumpWidget(WhiteboardApp(
         ffiService: _demoFfi(),
         themeState: theme,
-        syncService: sync,
+        collabService: sync,
         shortcutService: WbShortcutService(),
       ));
       await tester.pumpAndSettle();
@@ -261,7 +344,7 @@ void main() {
       addTearDown(tester.view.reset);
 
       final WbThemeState theme = WbThemeState();
-      final WbSyncService sync = WbSyncService();
+      final WbCollabService sync = WbCollabService();
       addTearDown(() {
         theme.dispose();
         sync.dispose();
@@ -270,7 +353,7 @@ void main() {
       await tester.pumpWidget(WhiteboardApp(
         ffiService: _demoFfi(),
         themeState: theme,
-        syncService: sync,
+        collabService: sync,
         shortcutService: WbShortcutService(),
       ));
       await tester.pumpAndSettle();
@@ -293,7 +376,7 @@ void main() {
       addTearDown(tester.view.reset);
 
       final WbThemeState theme = WbThemeState();
-      final WbSyncService sync = WbSyncService();
+      final WbCollabService sync = WbCollabService();
       addTearDown(() {
         theme.dispose();
         sync.dispose();
@@ -303,7 +386,7 @@ void main() {
       await tester.pumpWidget(WhiteboardApp(
         ffiService: _demoFfi(),
         themeState: theme,
-        syncService: sync,
+        collabService: sync,
         shortcutService: WbShortcutService(),
         router: router,
       ));

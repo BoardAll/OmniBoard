@@ -39,7 +39,7 @@ class WhiteboardApp extends StatefulWidget {
     super.key,
     required this.ffiService,
     required this.themeState,
-    required this.syncService,
+    required this.collabService,
     required this.shortcutService,
     this.settingsStore,
     this.boardFileService,
@@ -53,8 +53,8 @@ class WhiteboardApp extends StatefulWidget {
   /// 主题状态（全局单例）。
   final WbThemeState themeState;
 
-  /// 同步服务（全局单例）。
-  final WbSyncService syncService;
+  /// 协同服务（全局单例）。
+  final WbCollabService collabService;
 
   /// 快捷键服务（注册表）。
   final WbShortcutService shortcutService;
@@ -124,7 +124,7 @@ class _WhiteboardAppState extends State<WhiteboardApp> with WindowListener {
         Provider<WbShortcutService>.value(value: widget.shortcutService),
         Provider<WbAppExitService>.value(value: _exitService),
         ChangeNotifierProvider<WbThemeState>.value(value: widget.themeState),
-        ChangeNotifierProvider<WbSyncService>.value(value: widget.syncService),
+        ChangeNotifierProvider<WbCollabService>.value(value: widget.collabService),
         if (widget.settingsStore != null)
           Provider<WbSettingsStore>.value(value: widget.settingsStore!),
         if (widget.boardFileService != null)

@@ -6,9 +6,9 @@
 
 ## 1. 模块职责与边界
 
-- **负责**：Flutter Windows 桌面应用的全部装配与交互——入口与路由（`lib/main.dart`、`lib/app.dart`、`lib/routes.dart`）、状态层（`lib/state/`）、服务层（`lib/services/`）、平台层（`lib/platform/`）、页面（`lib/pages/`）、widgets（`lib/widgets/` 及 7 个子目录）、单元/widget 测试（`test/`）、真实 DLL FFI 集成测试（`test/integration/`）、端到端场景（`integration_test/`）、Windows 运行器与 `wb_core.dll` 部署（`windows/`）、资源目录（`assets/`）。
+- **负责**：Flutter Windows 桌面应用的全部装配与交互——入口与路由（`lib/main.dart`、`lib/app.dart`、`lib/routes.dart`）、状态层（`lib/state/`）、服务层（`lib/services/`）、平台层（`lib/platform/`）、页面（`lib/pages/`）、widgets（`lib/widgets/` 及 8 个子目录）、单元/widget 测试（`test/`）、真实 DLL FFI 集成测试（`test/integration/`）、端到端场景（`integration_test/`）、Windows 运行器与 `wb_core.dll` 部署（`windows/`）、资源目录（`assets/`）。
 - **不负责**：FFI 绑定与域服务封装（→ [07-dart-core](07-dart-core.md)）；基础组件/图标/主题库（→ [08-dart-ui](08-dart-ui.md)）；AI/REST/MCP 客户端协议（→ [09-dart-client](09-dart-client.md)）；平台插件原生实现（→ [10-dart-platform](10-dart-platform.md)）；C++ 引擎（→ 01-06）；服务端（→ 13-16）。
-- **规模（如实）**：`lib/` 90 个实现文件；`test/` 31 文件 414 用例 + `test/integration/` 5 文件 21 用例（全量 **435** 用例，实测 `flutter test` 全绿）；`integration_test/` 9 个场景文件（19 个 `testWidgets`，需 Windows 桌面环境）；`assets/` 为骨架（仅 `.gitkeep` 占位）。
+- **规模（如实）**：`lib/` 95 个实现文件；`test/` 34 文件 490 用例 + `test/integration/` 6 文件 24 用例（全量 **514** 用例，实测 `flutter test` 全绿）；`integration_test/` 9 个场景文件（19 个 `testWidgets`，需 Windows 桌面环境）；`assets/` 为骨架（仅 `.gitkeep` 占位）。
 - **降级路径**：无 `wb_core.dll` 时应用进入"演示模式"（画布走内存数据源 `canvas_store`）；FFI 集成测试在 `WB_REQUIRE_CORE_DLL=1` 时强制真实 DLL、否则优雅跳过。
 
 ## 2. 功能 → 文件映射
@@ -41,7 +41,7 @@
 | AI 应用服务：组合 Dart 侧 AI SDK 与引擎侧 AI 域 | `lib/services/ai_service.dart` | `test/ai_panel_deep_test.dart` |
 | 白板内置 AI 工具定义（命名映射） | `lib/services/ai_tools.dart` | `test/ai_canvas_executor_test.dart` |
 | AI 工具调用执行器：把模型返回的工具调用落地到画布 | `lib/services/ai_canvas_executor.dart` | `test/ai_canvas_executor_test.dart` |
-| 同步服务（骨架）：连接状态机 + 手动同步入口 | `lib/services/sync_service.dart` | `test/desktop_test.dart` |
+| 协同同步服务（T1.6）：FFI 控制面封装（`WbCollabEngine` 端口 + `WbFfiCollabEngine` 转发 sync/crdt 域）；50ms `events` 轮询（Timer/时钟可注入）→ ops 应用 / previews 透传记录 / room+status 刷新；`WbSyncStatus` 映射（offline/connecting/online/syncing/error）；`start`（connect → `crdt.create` 幂等容忍 Conflict → join → 轮询）/ `stop`；画布出口 `handleCanvasCommit`（`crdt.applyLocal` → 响应 op → `sync.sendOperation`；`el:{id}:data` 全量 / `el:{id}:exists=false` 删除；actor = 每连接会话随机 uuid；离线自动入引擎 pending）；远端应用防回发（`isApplyingRemote`）；默认 endpoint `http://127.0.0.1:8790` 可注入；UI 读取面 `WbCollabParticipant` / `participantList`（room 快照解析；M1 末位 = 本人推断） | `lib/services/sync_service.dart` | `test/sync_service_test.dart`、`test/canvas_sync_hooks_test.dart`、`test/desktop_test.dart`、`test/integration/ffi_sync_roundtrip_test.dart`、`test/integration/ffi_sync_dual_process_test.dart` |
 | 快捷键服务：应用级快捷键注册表与展示格式化 | `lib/services/shortcut_service.dart` | `test/settings_deep_test.dart`、`test/board_wiring_test.dart` |
 | 本地存储底座：`%APPDATA%\Whiteboard` 目录解析（可注入覆盖）+ JSON 同步读写（失败静默返回 null/false） | `lib/services/local_store.dart` | `test/settings_persistence_test.dart` |
 | 设置存储：`settings.json` 版本化 JSON——主题 id / 外观偏好 / AI 提供商配置 / 协作地址 / 最近白板列表（上限 20、去重）；AI 配置 → `AiProvider` 工厂 | `lib/services/settings_store.dart` | `test/settings_persistence_test.dart` |
@@ -63,9 +63,9 @@
 | 功能 | 实现文件 | 测试 |
 |---|---|---|
 | 白板列表页（首页）：最近白板入口 + 新建 + 「打开本地白板」对话框 + 本地文件最近列表（点击直开 / 失效可移除）+ AppBar「退出应用」按钮（与窗口 X 同编排） | `lib/pages/board_list_page.dart` | `test/desktop_test.dart`、`test/board_file_ui_test.dart`、`test/window_close_prompt_test.dart`、`integration_test/create_board_test.dart` |
-| 白板编辑页：画布 + 左侧栏 + AI 面板 + 径向/浮动工具栏；保存（Ctrl+S）/ 打开 / 返回列表未保存三选 / 标题脏标记 ` •` | `lib/pages/board_edit_page.dart` | `test/board_wiring_test.dart`、`test/board_file_ui_test.dart`、`test/window_close_prompt_test.dart`、`integration_test/create_element_test.dart` |
+| 白板编辑页：画布 + 左侧栏 + AI 面板 + 径向/浮动工具栏；保存（Ctrl+S）/ 打开 / 返回列表未保存三选 / 标题脏标记 ` •`；协同装配**默认本地**（打开白板不自动入房；点击「互动白板」入口 → 输入房间号 → `WbCollabService.start(boardId: 房间号)`，退出房间 / 关闭白板 → `stop`；画布钩子 ↔ 服务回调双向接线；工具栏「互动白板」入口按钮（离线 = 文字按钮 / 在房 = 状态 chip）+ 参与者入口 / `endDrawer` 面板） | `lib/pages/board_edit_page.dart` | `test/board_wiring_test.dart`、`test/board_file_ui_test.dart`、`test/window_close_prompt_test.dart`、`test/canvas_sync_hooks_test.dart`、`integration_test/create_element_test.dart` |
 | 专业元素独立编辑页：全屏路由承载六类上下文编辑器 | `lib/pages/element_editor_page.dart` | `test/element_editor_test.dart` |
-| 设置页：外观（主题 / 背景 / 无障碍）、快捷键、AI 助手、协作同步与关于 | `lib/pages/settings_page.dart` | `test/settings_deep_test.dart`、`integration_test/theme_test.dart` |
+| 设置页：外观（主题 / 背景 / 无障碍）、快捷键、AI 助手、协作同步（服务器地址保存：持久化 + 更新生效端点，在房时先断开；预填默认端点）与关于 | `lib/pages/settings_page.dart` | `test/settings_deep_test.dart`、`integration_test/theme_test.dart` |
 
 ### 2.6 主界面组件（lib/widgets/ 根）
 
@@ -94,7 +94,7 @@
 
 | 功能 | 实现文件 | 测试 |
 |---|---|---|
-| 画布控制器：视口变换 / 手势状态机 / 工具行为 / 选择 / 编辑命令 / 撤销栈；`documentRevision` 脏标记（真实变更才递增）+ `loadBoardData` 整板加载（提升 `_sequence` 防 id 冲突） | `lib/widgets/canvas/canvas_controller.dart` | `test/canvas_deep_test.dart`、`test/board_file_service_test.dart` |
+| 画布控制器：视口变换 / 手势状态机 / 工具行为 / 选择 / 编辑命令 / 撤销栈；`documentRevision` 脏标记（真实变更才递增）+ `loadBoardData` 整板加载（提升 `_sequence` 防 id 冲突）；协同钩子（T1.6）：落定提交出口 `onLocalCommit`（`WbCanvasCommitBatch`，与撤销栈同批）+ `isRemoteApplying` 防回发谓词 + 远端入口 `applyRemoteElement` / `applyRemoteRemove`（不入本端撤销栈、选中集同步剔除） | `lib/widgets/canvas/canvas_controller.dart` | `test/canvas_deep_test.dart`、`test/board_file_service_test.dart`、`test/canvas_sync_hooks_test.dart` |
 | 元素内存模型 + 存储适配器（内存演示 / FFI 引擎两种实现） | `lib/widgets/canvas/canvas_model.dart`、`canvas_store.dart` | `test/canvas_deep_test.dart`、`test/canvas_3d_test.dart` |
 | 画布绘制器 + 页面背景共享绘制（底色 / 图案 / 背景图片） | `lib/widgets/canvas/canvas_painter.dart`、`background_painter.dart` | `test/canvas_deep_test.dart`、`test/canvas_background_grid_test.dart` |
 | 专业元素渲染 + 3D 网格投影公共模块 | `lib/widgets/canvas/professional_painter.dart`、`wb3d_projection.dart` | `test/professional_insert_test.dart`、`test/wb3d_projection_test.dart` |
@@ -103,7 +103,17 @@
 | 工具调色板（11 工具 + 撤销/重做 + 参数）+ 缩放控件 + 迷你地图 | `lib/widgets/canvas/canvas_tool_palette.dart`、`zoom_controls.dart`、`minimap.dart` | `test/canvas_deep_test.dart` |
 | 可拖动悬浮面板包装 + 元素尺寸对话框（3D / 2D 宽高） | `lib/widgets/canvas/draggable_overlay.dart`、`element_size_dialog.dart` | `test/draggable_overlay_test.dart`、`test/element_size_dialog_test.dart`、`test/canvas_3d_size_test.dart` |
 
-### 2.9 上下文编辑器（lib/widgets/context_editors/）
+### 2.9 协作 UI（lib/widgets/collab/）
+
+| 功能 | 实现文件 | 测试 |
+|---|---|---|
+| 连接状态 chip（在房 / 连接中时经入口按钮展示，离线不渲染）：`WbSyncStatus` 五态映射（offline 灰「离线」/ connecting 含重连轮次「连接中」/ online「已连接」/ syncing「同步中」/ error「同步错误」）；悬停提示汇总端点 / 在线人数 / 延迟 / 待确认 / 错误详情 | `lib/widgets/collab/sync_status_chip.dart` | `test/collab_widget_test.dart`、`test/board_wiring_test.dart` |
+| 参与者面板（编辑页 `endDrawer`）：名单来自 `WbCollabService.participantList`（`WbCollabParticipant`；本人标记 = `room.selfUserId` 精确匹配，缺失回退末位推断）/ 角色中文映射（主持人 / 联席主持人 / 演示者 / 参与者 / 观看者 / 访客）/ 状态行 + 空态引导；不含 M2 光标 / 选区 / 软锁 | `lib/widgets/collab/participants_panel.dart` | `test/collab_widget_test.dart` |
+| 参与者入口按钮：在线人数徽标（0 隐藏、>9 封顶「9+」），点击打开面板 | `lib/widgets/collab/participants_button.dart` | `test/collab_widget_test.dart` |
+| 互动白板入口按钮：离线态「互动白板」文字按钮，非离线态包裹状态 chip（点击挂载方弹「加入房间」或「房间信息」对话框） | `lib/widgets/collab/collab_entry_button.dart` | `test/collab_widget_test.dart`、`test/board_wiring_test.dart` |
+| 协同对话框：加入房间（房间号输入 + 服务器地址提示，空输入禁用确认，返回 trim 后房间号）/ 房间信息（房间号 / 服务器 / 状态·人数 / 最近错误 + 「退出互动白板」返回 true） | `lib/widgets/collab/collab_dialogs.dart` | `test/collab_widget_test.dart`、`test/board_wiring_test.dart` |
+
+### 2.10 上下文编辑器（lib/widgets/context_editors/）
 
 | 功能 | 实现文件 | 测试 |
 |---|---|---|
@@ -116,7 +126,7 @@
 | 3D 对象编辑器 | `lib/widgets/context_editors/render3d_editor.dart` | `test/context_editors_test.dart`、`integration_test/render3d_test.dart` |
 | 快速创建入口（五类编辑器统一入口） | `lib/widgets/context_editors/quick_create.dart` | `test/board_wiring_test.dart`、各 workspace 测试 |
 
-### 2.10 引导与帮助（lib/widgets/guide/）
+### 2.11 引导与帮助（lib/widgets/guide/）
 
 | 功能 | 实现文件 | 测试 |
 |---|---|---|
@@ -125,7 +135,7 @@
 | 新手引导浮层：分步高亮 + 提示卡片 | `lib/widgets/guide/onboarding_overlay.dart` | `test/guide_test.dart` |
 | 快捷键卡片 + 弹层入口（命令面板 / 宿主共用） | `lib/widgets/guide/shortcut_card.dart`、`shortcut_card_dialog.dart` | `test/guide_test.dart` |
 
-### 2.11 径向圆盘（lib/widgets/radial/）
+### 2.12 径向圆盘（lib/widgets/radial/）
 
 | 功能 | 实现文件 | 测试 |
 |---|---|---|
@@ -135,7 +145,7 @@
 | 临时圆盘弹出（长按画布）+ 拖拽轨迹线绘制 | `lib/widgets/radial/radial_popup.dart`、`radial_trail.dart` | `test/radial_toolbar_deep_test.dart`、`test/board_wiring_test.dart` |
 | 圆盘工具 → 画布行为纯映射表（全量覆盖 `RadialCatalog`） | `lib/widgets/radial/radial_tool_mapping.dart` | `test/radial_tool_mapping_test.dart` |
 
-### 2.12 设置面板（lib/widgets/settings/）
+### 2.13 设置面板（lib/widgets/settings/）
 
 | 功能 | 实现文件 | 测试 |
 |---|---|---|
@@ -145,7 +155,7 @@
 | 无障碍设置：减少动效 / 减少透明度 / 高对比度 / 字号缩放 | `lib/widgets/settings/accessibility_settings.dart` | `test/settings_deep_test.dart` |
 | 快捷键设置：文档快捷键总览（只读）与键位冲突检测提示 | `lib/widgets/settings/hotkey_settings.dart` | `test/settings_deep_test.dart` |
 
-### 2.13 工具栏原子组件（lib/widgets/toolbar/）
+### 2.14 工具栏原子组件（lib/widgets/toolbar/）
 
 | 功能 | 实现文件 | 测试 |
 |---|---|---|
@@ -153,11 +163,13 @@
 | 上下文工具栏：按选中对象类型（便签 / 文本 / 形状 / 连线 / 图片 / 3D） | `lib/widgets/toolbar/context_toolbar.dart` | `test/floating_toolbar_deep_test.dart`、`test/canvas_deep_test.dart` |
 | 工具栏样式弹层：颜色选择、单选（对齐 / 线型 / 字号）、线宽 | `lib/widgets/toolbar/color_picker_popover.dart` | `test/floating_toolbar_deep_test.dart` |
 
-### 2.14 单元与 widget 测试（test/，31 文件 / 414 用例）
+### 2.15 单元与 widget 测试（test/，34 文件 / 490 用例）
 
 | 分组 | 测试文件 | 用例 |
 |---|---|---|
-| 应用装配与路由 | `test/desktop_test.dart`、`test/board_wiring_test.dart` | 21 |
+| 应用装配与路由 | `test/desktop_test.dart`、`test/board_wiring_test.dart` | 22 |
+| 协同同步（T1.6） | `test/sync_service_test.dart`、`test/canvas_sync_hooks_test.dart` | 57 |
+| 协作 UI（T1.7） | `test/collab_widget_test.dart` | 17 |
 | 画布核心交互 | `test/canvas_deep_test.dart` | 38 |
 | 画布 3D（渲染 / 尺寸 / UI / 投影） | `test/canvas_3d_test.dart`、`canvas_3d_size_test.dart`、`canvas_3d_ui_test.dart`、`wb3d_projection_test.dart` | 29 |
 | 画布背景与专业元素 | `test/canvas_background_grid_test.dart`、`test/professional_insert_test.dart` | 15 |
@@ -166,14 +178,14 @@
 | AI 面板与工具执行器 | `test/ai_panel_deep_test.dart`、`test/ai_canvas_executor_test.dart` | 30 |
 | 透明批注 | `test/annotation_test.dart` | 27 |
 | 上下文编辑器与工作区 | `test/context_editors_test.dart`、`flowchart_workspace_test.dart`、`table_mindmap_workspace_test.dart`、`element_editor_test.dart` | 55 |
-| 设置（主题 / 背景 / 无障碍 / 热键） | `test/settings_deep_test.dart` | 21 |
+| 设置（主题 / 背景 / 无障碍 / 热键） | `test/settings_deep_test.dart` | 22 |
 | 引导与帮助 | `test/guide_test.dart` | 20 |
 | 浮动工具栏与部件 | `test/floating_toolbar_deep_test.dart`、`draggable_overlay_test.dart`、`element_size_dialog_test.dart` | 33 |
 | 平台（透明叠加 / 桌面背景） | `test/transparent_overlay_test.dart`、`test/desktop_backdrop_test.dart` | 19 |
 | 本地文件与设置持久化 | `test/settings_persistence_test.dart`、`board_file_codec_test.dart`、`board_file_service_test.dart`、`window_close_prompt_test.dart`、`board_file_ui_test.dart` | 47 |
-| **合计** | **31 个文件** | **414** |
+| **合计** | **34 个文件** | **490** |
 
-### 2.15 FFI 集成测试（test/integration/，5 文件 / 21 用例，真实 DLL）
+### 2.16 FFI 集成测试（test/integration/，6 文件 / 24 用例，真实 DLL）
 
 | 文件 | 覆盖 | 用例 |
 |---|---|---|
@@ -181,9 +193,11 @@
 | `test/integration/ffi_command_test.dart` | 元素 CRUD、命令总线（`command.history` / `command.undo` / `command.redo`）、工具调用、错误信封语义；**回归：undo/redo 走 command 域、`wb_element_batch` 顶层数组** | 6 |
 | `test/integration/ffi_memory_test.dart` | UTF-8 中文/emoji 往返、句柄循环创建/销毁、渲染缓存命中与清空、`requireResult` 异常 | 5 |
 | `test/integration/ffi_render_test.dart` | 显示列表、3D 创建与渲染、缩略图、缓存与性能统计不变量、已知偏差①②③（记录不修复） | 5 |
-| `test/integration/support/ffi_support.dart` | 脚手架：DLL 定位（候选路径 + 4 层父目录探测）、`ffiIntegrationSkipReason`（`WB_REQUIRE_CORE_DLL=1` 强校验）、`loadRealCore`、`FfiBoardHandle` / `createBoardWithPage` | — |
+| `test/integration/ffi_sync_roundtrip_test.dart` | T1.6 真实 realtime 往返（env-gated：`WB_REALTIME_E2E=1`）：本地 realtime ← 真实 C++ socket.io 客户端（connect / join / sendOperation / events）；node 探针作第二客户端，验证发送方向 op key/value/actor 与反向回发放射接收 | 1 |
+| `test/integration/ffi_sync_dual_process_test.dart` | T1.6 双进程「双开等价」（env-gated + `WB_DUAL_*` 注入）：两个真实引擎进程同房互发互收——接收端等 join 确认 → 收 op 应用；发送端落定提交 → 等服务端 ack（`latencyMs > 0`） | 2 |
+| `test/integration/support/`（`ffi_support.dart`、`wb_realtime_probe.mjs`、`run_dual_process_ffi_test.mjs`） | 脚手架：DLL 定位（候选路径 + 4 层父目录探测）、`ffiIntegrationSkipReason`（`WB_REQUIRE_CORE_DLL=1` 强校验）、`loadRealCore`、`FfiBoardHandle` / `createBoardWithPage`；node 探针（第二客户端）；双进程协调脚本（起服务 → 接收端就绪信号 → 发送端 → 双 exit 断言） | — |
 
-### 2.16 端到端场景（integration_test/，9 场景 / 19 个 testWidgets）
+### 2.17 端到端场景（integration_test/，9 场景 / 19 个 testWidgets）
 
 | 场景文件 | 覆盖 |
 |---|---|
@@ -198,15 +212,15 @@
 | `integration_test/render3d_test.dart` | 类型 / 材质切换与重置、关闭后对话框回收 |
 | `integration_test/support/e2e_support.dart` | 脚手架：`demoFfi`（失败路径注入 → 演示模式）、`pumpApp` / `pumpEditor`（1600x1000 视口）、`openQuickCreate`、`dismissOverlay` |
 
-### 2.17 Windows 运行器与 wb_core.dll 部署（windows/）
+### 2.18 Windows 运行器与 wb_core.dll 部署（windows/）
 
 | 功能 | 实现文件 |
 |---|---|
-| `wb_core.dll` 部署：`add_custom_target(wb_core_dll_deploy ALL)` + **三级源解析**（`-DWB_CORE_DLL` → `$ENV{WB_CORE_DLL}` → 默认 `<repo>/build/windows-x64/bin/$<CONFIG>/wb_core.dll`）；缺失仅 WARNING、绝不失败构建、不删文件 | `windows/CMakeLists.txt`、`windows/copy_wb_core.cmake` |
+| `wb_core.dll` 部署：`add_custom_target(wb_core_dll_deploy ALL)` + **四级源解析**（`-DWB_CORE_DLL` → `$ENV{WB_CORE_DLL}` → 默认 `<repo>/build/windows-x64/bin/$<CONFIG>/wb_core.dll` → Release 回退 `<repo>/build/windows-x64/bin/Release/wb_core.dll`，因 core preset 只构建 Release，Debug/Profile 构建靠回退部署而非跳过）；缺失仅 WARNING、绝不失败构建、不删文件 | `windows/CMakeLists.txt`、`windows/copy_wb_core.cmake` |
 | 运行器（原生入口与窗口）：`main.cpp`、`flutter_window.*`、`win32_window.*`、`utils.*`、`Runner.rc`、`runner.exe.manifest`、`resource.h`、`resources/app_icon.ico` | `windows/runner/**` |
 | Flutter 工具生成物（不手工修改）：`generated_plugins.cmake`、`generated_plugin_registrant.*`、`ephemeral/**` | `windows/flutter/**` |
 
-### 2.18 资源目录（assets/）
+### 2.19 资源目录（assets/）
 
 | 功能 | 实现文件 |
 |---|---|
@@ -220,10 +234,11 @@
   - **路由路径固化**（`lib/routes.dart` 的 `WbRoutes`）：`/`、`/board/:boardId`、`/board/:boardId/editor`、`/settings`；深链与 E2E 依赖，修改必须同步 `integration_test/**`；
   - **FFI 集成测试约定**（`test/integration/support/ffi_support.dart`）：DLL 候选路径 `../../build/windows-x64/bin/Release/wb_core.dll` / `build/windows-x64/bin/Release/wb_core.dll` + 最多 4 层父目录兜底探测；`WB_REQUIRE_CORE_DLL=1` 时 DLL 缺失直接抛 `StateError`（防整包静默假绿），否则返回跳过原因；断言不依赖具体 `board-N` 编号（并发 isolate 共享引擎状态）；不调用 `wb_shutdown`；
   - **演示模式接缝**：`WbFfiService(candidatePaths: [...])` 注入失败路径 → 应用内降级（`canvas_store` 内存数据源）；E2E 用 `__wb_missing__.dll` 保证确定性；
-  - **windows DLL 部署**：`copy_wb_core.cmake` 三级源解析；目标为空或疑似文件路径 → WARNING 跳过；应用可在无原生核心时构建、运行时降级（与 07 的加载器行为配套）；
+  - **windows DLL 部署**：`copy_wb_core.cmake` 四级源解析（含 Release 回退：Debug/Profile 构建部署 Release 版 DLL，避免 core preset 只构建 Release 时跳过部署）；目标为空或疑似文件路径 → WARNING 跳过；应用可在无原生核心时构建、运行时降级（与 07 的加载器行为配套）；
   - **本地文件契约**：`.wbd` 白板文件（UTF-8 JSON：`format:"whiteboard-board"` / `version:1`；全元素 + 6 类专业 payload；未知字段忽略、缺省取默认、坏结构抛 `FormatException`）与 `%APPDATA%\Whiteboard\settings.json`（主题/外观/AI/协作/最近列表；API 密钥明文）均由 `board_file_codec.dart` / `settings_store.dart` 固化，格式改动需同步 18 号规模基线；
-  - **widgets 稳定 Key 属隐性契约**：如 `wb-ctx-quick-create-*`、`page-card-*`、`pages-add`、`theme-card-*` 被 E2E / 深度测试定位，改动前先全局搜索；
-  - **测试规模**：全量 **435 用例**（`test/` 414 + `test/integration/` 21），`flutter test`（apps/desktop）实测全绿；E2E 19 用例需 Windows 桌面会话。
+  - **协同同步契约（T1.6）**：op key `el:{id}:data`（value = 元素契约 JSON，复用 `board_file_codec` 映射）/ `el:{id}:exists=false`（删除）；actor 为每连接会话随机 uuid；远端应用期间画布出口跳过（防回发）、远端 op 不入本端撤销栈；`WbCollabService` 默认 endpoint `http://127.0.0.1:8790`（可注入）；UI 读取面 `WbCollabParticipant` / `participantList`（M1 末位自标识推断）；
+  - **widgets 稳定 Key 属隐性契约**：如 `wb-ctx-quick-create-*`、`page-card-*`、`pages-add`、`theme-card-*`、`wb-sync-status-chip`、`wb-collab-entry`、`wb-collab-join-dialog`、`wb-collab-room-dialog`、`wb-participants-panel`、`wb-participants-button`、`wb-participant-*` 被 E2E / 深度测试定位，改动前先全局搜索；
+  - **测试规模**：全量 **514 用例**（`test/` 490 + `test/integration/` 24），`flutter test`（apps/desktop）实测全绿；E2E 19 用例需 Windows 桌面会话。
 - **上游契约**：07（`WbCoreFfi` / 领域服务面）、08（UI Kit/主题/图标）、09（AI 客户端）、10（`whiteboard_windows` 插件）。
 
 ## 4. 常用命令
@@ -234,6 +249,9 @@ Set-Location apps\desktop; E:\code\flutter-sdk\flutter\bin\flutter.bat pub get; 
 E:\code\flutter-sdk\flutter\bin\flutter.bat test --no-pub
 # 真实 DLL FFI 集成（先构建 C++ 核心，见 17-build-release）
 $env:WB_REQUIRE_CORE_DLL='1'; E:\code\flutter-sdk\flutter\bin\flutter.bat test --no-pub test/integration
+# 协同真连（env-gated：单进程往返先跑；双进程「双开等价」用协调脚本）
+$env:WB_REALTIME_E2E='1'; E:\code\flutter-sdk\flutter\bin\flutter.bat test --no-pub test/integration
+node test/integration/support/run_dual_process_ffi_test.mjs
 # 桌面运行与构建（含 wb_core.dll 随构建部署）
 E:\code\flutter-sdk\flutter\bin\flutter.bat run -d windows
 E:\code\flutter-sdk\flutter\bin\flutter.bat build windows --release
@@ -244,10 +262,12 @@ E:\code\flutter-sdk\flutter\bin\flutter.bat test integration_test\app_test.dart 
 ## 5. 变更影响提醒（改本模块时注意）
 
 - 改 `lib/routes.dart` 路由路径 / 参数 → `integration_test/**` 与深链行为；若涉及跨端路径对齐，同步 12-app-web 规划。
-- 改 `lib/state/**` 的 ChangeNotifier 契约 → 多组 widget 测试编译/断言受影响，改后必须全量 `flutter test`（435）。
+- 改 `lib/state/**` 的 ChangeNotifier 契约 → 多组 widget 测试编译/断言受影响，改后必须全量 `flutter test`（514）。
 - 改 `lib/services/ffi_service.dart`（候选路径 / 降级判定 / 子服务 getter）→ `test/integration/**` 与 E2E 演示模式链路；FFI 行为回归同时对照 07 模块。
+- 改 `lib/services/sync_service.dart`（op key 契约 / 状态映射 / 轮询时序 / participantList 与 selfUserId 读取面）或 `canvas_controller.dart` 协同钩子 / `lib/widgets/collab/**` UI → `test/sync_service_test.dart`、`test/collab_widget_test.dart`、`test/canvas_sync_hooks_test.dart` 与 `test/integration/ffi_sync_*` 真连测试（协议联动 services/realtime，13-16）。
+- 改 `test/integration/support/run_dual_process_ffi_test.mjs` / `wb_realtime_probe.mjs` → 双进程与探针真连依赖 node + `services/realtime` 的 dist 构建，与 13-16 协议变更同步核对。
 - 改 `windows/copy_wb_core.cmake` / `windows/CMakeLists.txt` 部署逻辑 → 17-build-release 打包链路与运行时分发（`wb_core.dll` 随包）核对。
 - 改 widgets 稳定 Key（`wb-ctx-quick-create-*`、`page-card-*` 等）→ E2E 与深度测试大量使用，属"隐性契约"；先全局搜索再改。
 - 改 `.wbd` 文件格式 / `settings.json` 形状 / `board_file_*` 服务 API → 同步本文档 2.3、10 号（对话框方法）与 18 号规模基线；`WbBoardOpenRequest` 改名会打穿列表页 / 编辑页 / 路由三处。
 - 依赖 07/08/09/10 的公开 API：对方改动会使本模块编译期暴露，用全量 `flutter analyze` + `flutter test` 验证。
-- 新增/删除 `lib/**`、`test/**`、`integration_test/**` 文件 → 同步更新本文档 2.x 映射、2.14-2.16 用例数。
+- 新增/删除 `lib/**`、`test/**`、`integration_test/**` 文件 → 同步更新本文档 2.x 映射、2.15-2.17 用例数。

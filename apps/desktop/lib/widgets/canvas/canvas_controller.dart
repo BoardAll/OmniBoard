@@ -136,6 +136,30 @@ class _ElementSnapshot {
   final List<Offset> points;
 }
 
+/// 本地落定提交批次（与撤销栈入栈同一批落地；协同出口的输入）。
+///
+/// [upserts] 为新增 / 变更后的元素（全量契约 JSON 语义）；[removedIds]
+/// 为被删除的元素 id。由 `WbCanvasController._commitEdit` 生成并经
+/// `onLocalCommit` 交给协同服务（远端应用路径不经过本出口）。
+class WbCanvasCommitBatch {
+  const WbCanvasCommitBatch({
+    this.upserts = const <WbCanvasElement>[],
+    this.removedIds = const <String>[],
+  });
+
+  /// 新增或变更的元素（元素不可变，引用安全）。
+  final List<WbCanvasElement> upserts;
+
+  /// 删除的元素 id。
+  final List<String> removedIds;
+
+  /// 批次是否为空（无变更）。
+  bool get isEmpty => upserts.isEmpty && removedIds.isEmpty;
+
+  /// 批次是否非空。
+  bool get isNotEmpty => !isEmpty;
+}
+
 /// 画布控制器（唯一状态源）。
 class WbCanvasController extends ChangeNotifier {
   WbCanvasController({
@@ -180,6 +204,19 @@ class WbCanvasController extends ChangeNotifier {
   /// 宿主弹出尺寸设置对话框并把结果经 [resizeElementById] 回写
   /// （问题 6：3D / 2D 元素显示宽高并可调整）。
   void Function(WbCanvasElement element)? onSizeBadgeTap;
+
+  /// 本地落定提交回调（注入：协同出口；null 时无行为）。
+  ///
+  /// 在 `_commitEdit`（撤销栈入栈同一批）后调用；`isRemoteApplying`
+  /// 返回 true 时跳过（防回发）。回调内不得直接调用本控制器方法。
+  void Function(WbCanvasCommitBatch batch)? onLocalCommit;
+
+  /// 远端应用期间判定（注入：防回发第二层）。
+  ///
+  /// 协同服务应用远端 op 期间返回 true——`_commitEdit` 的出口将跳过
+  /// 提交批次（第一层：远端应用走 `applyRemoteElement` /
+  /// `applyRemoteRemove`，结构上绕过提交漏斗）。
+  bool Function()? isRemoteApplying;
 
   /// 是否已释放（异步流程完成后不再写状态）。
   bool _disposed = false;
@@ -2748,6 +2785,51 @@ class WbCanvasController extends ChangeNotifier {
     return false;
   }
 
+  // ---- 协同（sync）远端应用入口 -------------------------------------------
+
+  /// 应用远端元素 upsert（协同入口；M1：LWW 覆盖本地未落定显示）。
+  ///
+  /// 与本地编辑结构隔离（**防回发第一层**）：不经过 `_beginEdit` /
+  /// `_commitEdit` 提交漏斗、不生成出口批次、不触碰撤销 / 重做栈——
+  /// 远端变更不占用本端撤销历史。内容变化递增 [documentRevision]（脏标记）。
+  void applyRemoteElement(WbCanvasElement element) {
+    if (_disposed || element.id.isEmpty) {
+      return;
+    }
+    document.upsert(_pageId, element);
+    textCache.invalidate(element.id);
+    try {
+      _store?.upsert(_pageId, element);
+    } catch (_) {
+      // 存储同步失败不影响本地状态。
+    }
+    _documentRevision++;
+    notifyListeners();
+  }
+
+  /// 应用远端元素删除（协同入口；不存在的 id 静默忽略）。
+  ///
+  /// 命中选中集合时同步剔除（避免幽灵选中）；同样不进入撤销栈。
+  void applyRemoteRemove(String elementId) {
+    if (_disposed || elementId.isEmpty) {
+      return;
+    }
+    final bool removed = document.remove(_pageId, elementId);
+    textCache.invalidate(elementId);
+    try {
+      _store?.remove(_pageId, elementId);
+    } catch (_) {
+      // 存储同步失败不影响本地状态。
+    }
+    if (_selection?.contains(elementId) ?? false) {
+      _selection?.toggle(elementId);
+    }
+    if (removed) {
+      _documentRevision++;
+    }
+    notifyListeners();
+  }
+
   // ---- 内部工具 ---------------------------------------------------------
 
   void _beginEdit() {
@@ -2767,6 +2849,37 @@ class WbCanvasController extends ChangeNotifier {
       _undoStack.removeAt(0);
     }
     _redoStack.clear();
+    // 协同出口：与撤销栈入栈同一批落地（防回发窗口内跳过）。
+    _emitLocalCommit(before);
+  }
+
+  /// 生成落定提交批次并经 [onLocalCommit] 交给协同出口。
+  ///
+  /// 与 `_persistChanges` 相同 diff 语义（快照比 identical）：当前元素中
+  /// 新增 / 变更者为 upsert，快照中残余者视为删除。防回发第二层：
+  /// [isRemoteApplying] 为 true（远端应用窗口）时跳过。
+  void _emitLocalCommit(List<WbCanvasElement> before) {
+    final void Function(WbCanvasCommitBatch batch)? callback = onLocalCommit;
+    if (callback == null || (isRemoteApplying?.call() ?? false)) {
+      return;
+    }
+    final Map<String, WbCanvasElement> beforeById = <String, WbCanvasElement>{
+      for (final WbCanvasElement e in before) e.id: e,
+    };
+    final List<WbCanvasElement> upserts = <WbCanvasElement>[];
+    for (final WbCanvasElement element in elements) {
+      final WbCanvasElement? old = beforeById.remove(element.id);
+      if (old == null || !identical(old, element)) {
+        upserts.add(element);
+      }
+    }
+    if (upserts.isEmpty && beforeById.isEmpty) {
+      return;
+    }
+    callback(WbCanvasCommitBatch(
+      upserts: upserts,
+      removedIds: beforeById.keys.toList(growable: false),
+    ));
   }
 
   void _restoreEditSnapshot() {

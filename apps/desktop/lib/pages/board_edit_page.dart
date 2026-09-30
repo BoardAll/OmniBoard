@@ -38,6 +38,10 @@ import '../widgets/canvas/canvas_model.dart';
 import '../widgets/canvas/element_size_dialog.dart';
 import '../widgets/canvas/professional_painter.dart';
 import '../widgets/canvas_view.dart';
+import '../widgets/collab/collab_dialogs.dart';
+import '../widgets/collab/collab_entry_button.dart';
+import '../widgets/collab/participants_button.dart';
+import '../widgets/collab/participants_panel.dart';
 import '../widgets/command_palette.dart';
 import '../widgets/context_editors/quick_create.dart';
 import '../widgets/floating_toolbar.dart';
@@ -88,6 +92,7 @@ class _BoardEditPageState extends State<BoardEditPage> {
   late final WbBoardState _boardState;
   late final WbPageState _pageState;
   late final WbBoardFileService? _fileService;
+  late final WbCollabService _collab;
   late final WbCanvasController _canvas;
   late final WbAiState _aiState;
   late final WbAiCanvasExecutor _aiExecutor;
@@ -96,6 +101,9 @@ class _BoardEditPageState extends State<BoardEditPage> {
   late final WbDesktopBackdropController _backdrop;
   bool _aiOpen = true;
   bool _paletteOpen = false;
+
+  /// 编辑页 Scaffold 状态（参与者面板 endDrawer 开合）。
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
 
   /// 桌面批注（显示桌面）模式：批注激活时隐藏白板内容，仅保留批注层。
   bool _desktopAnnotation = false;
@@ -127,6 +135,7 @@ class _BoardEditPageState extends State<BoardEditPage> {
     _pageState = context.read<WbPageState>();
     // 白板文件服务（可空：未挂载 Provider 时保存 / 打开入口给出轻提示）。
     _fileService = context.read<WbBoardFileService?>();
+    _collab = context.read<WbCollabService>();
     _canvas = WbCanvasController(
       selection: context.read<WbSelectionState>(),
       // 图片工具：系统文件选择对话框（问题 2）。
@@ -137,6 +146,13 @@ class _BoardEditPageState extends State<BoardEditPage> {
       onSizeBadgeTap: _onSizeBadgeTap,
     );
     _canvas.addListener(_onCanvasChanged);
+
+    // 协同装配：画布出口（落定提交 → op）/ 入口（远端元素 upsert / 删除）
+    // 与防回发谓词（远端应用期间跳过出口）。
+    _canvas.onLocalCommit = _collab.handleCanvasCommit;
+    _canvas.isRemoteApplying = () => _collab.isApplyingRemote;
+    _collab.onRemoteElement = _canvas.applyRemoteElement;
+    _collab.onRemoteRemove = _canvas.applyRemoteRemove;
     // AI 工具调用 → 画布落地执行器：面板执行卡片「执行」真正编辑白板
     // （element_create / element_update / element_move / element_delete）。
     _aiState = context.read<WbAiState>();
@@ -171,6 +187,7 @@ class _BoardEditPageState extends State<BoardEditPage> {
     _backdrop.dispose();
     _overlay.dispose();
     _fileService?.unbind();
+    unawaited(_collab.stop());
     _canvas.removeListener(_onCanvasChanged);
     _canvas.dispose();
     super.dispose();
@@ -207,6 +224,39 @@ class _BoardEditPageState extends State<BoardEditPage> {
     // 新建流程在加载完成后绑定：初始化通知不误标脏。
     _fileService
         ?.bindBoard(board: _boardState, pages: _pageState, canvas: _canvas);
+  }
+
+  /// 互动白板入口：默认本地；未入房时弹「加入」对话框（输入房间号），
+  /// 已在房时弹房间信息（含退出）。两端输入相同房间号即同步。
+  Future<void> _openCollabEntry() async {
+    if (_collab.boardId != null && _collab.status != WbSyncStatus.offline) {
+      final bool leave = await showWbCollabRoomDialog(context) ?? false;
+      if (leave && mounted) {
+        await _collab.stop();
+        if (mounted) {
+          _snack('已退出互动白板（回到本地模式）');
+        }
+      }
+      return;
+    }
+    final String? room = await showWbCollabJoinDialog(
+      context,
+      serverHint: _collab.endpoint,
+    );
+    if (!mounted || room == null || room.isEmpty) {
+      return;
+    }
+    final bool ok = await _collab.start(boardId: room);
+    if (!mounted) {
+      return;
+    }
+    if (ok) {
+      _snack('已加入互动白板：$room');
+    } else {
+      final String reason =
+          _collab.lastError.isEmpty ? '未知错误' : _collab.lastError;
+      _snack('加入失败：$reason（可在设置页检查服务器地址）');
+    }
   }
 
   /// 返回列表：有未保存改动先走三选询问（保存成功 / 不保存才离开）。
@@ -747,6 +797,8 @@ class _BoardEditPageState extends State<BoardEditPage> {
       return _buildDesktopAnnotation(topToolbar);
     }
     return Scaffold(
+      key: _scaffoldKey,
+      endDrawer: const WbParticipantsPanel(),
       appBar: AppBar(
         backgroundColor: colors.surface,
         leading: IconButton(
@@ -796,7 +848,12 @@ class _BoardEditPageState extends State<BoardEditPage> {
             icon: const Icon(LinearIcons.folder),
             onPressed: () => unawaited(_openLocalBoard()),
           ),
-          const _SyncStatusChip(),
+          WbCollabEntryButton(
+            onPressed: () => unawaited(_openCollabEntry()),
+          ),
+          WbParticipantsButton(
+            onPressed: () => _scaffoldKey.currentState?.openEndDrawer(),
+          ),
           IconButton(
             tooltip: '显示桌面',
             icon: const Icon(LinearIcons.fitScreen),
@@ -909,34 +966,6 @@ class _BoardEditPageState extends State<BoardEditPage> {
             const SizedBox(width: 320, child: AiPanel()),
           ],
         ],
-      ),
-    );
-  }
-}
-
-/// 同步状态指示 chip。
-class _SyncStatusChip extends StatelessWidget {
-  const _SyncStatusChip();
-
-  @override
-  Widget build(BuildContext context) {
-    final WbSyncService sync = context.watch<WbSyncService>();
-    final WbThemeColors colors = context.wbColors;
-    final bool online = sync.isOnline;
-    return Tooltip(
-      message: sync.serverUrl.isEmpty ? '未配置协作服务地址' : sync.serverUrl,
-      child: Chip(
-        avatar: Icon(
-          online ? LinearIcons.cloud : LinearIcons.offline,
-          size: 16,
-        ),
-        label: Text(sync.status.label),
-        labelStyle: Theme.of(context)
-            .textTheme
-            .bodySmall
-            ?.copyWith(color: colors.icon),
-        side: BorderSide(color: colors.border),
-        backgroundColor: colors.surface,
       ),
     );
   }

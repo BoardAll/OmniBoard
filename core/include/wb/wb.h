@@ -12,6 +12,7 @@
 //   《AI 助手与 MCP 设计》§7.5     (ai sessions)
 //   《MCP_Server详细设计》§11.10   (mcp server / session / tools / resources / prompts / audit)
 //   《互动白板预留接口设计》M10.1   (sync placeholders)
+//   《互动白板实时协同设计文档》§8.2/§8.3 (M1 collaboration data plane forwards)
 //
 // Conventions:
 //   - All inputs/outputs are UTF-8 JSON strings unless noted otherwise.
@@ -217,6 +218,22 @@ WB_API const char* wb_sync_connect(const char* endpoint, const char* token);
 WB_API const char* wb_sync_disconnect();
 WB_API const char* wb_sync_status();
 WB_API const char* wb_sync_set_offline(int offline);
+
+// M1 collaboration data plane — thin JSON-in/JSON-out forwards into the
+// existing "sync"/"crdt" domains (互动白板实时协同设计文档 §8.2 erratum).
+// Pure additions: the four control-plane signatures above are unchanged and
+// no callback-channel symbol is added (D6 stays poll-based).
+WB_API const char* wb_sync_join(const char* boardId, const char* pageId);
+WB_API const char* wb_sync_send_operation(const char* opJson);
+WB_API const char* wb_sync_flush();
+WB_API const char* wb_sync_events();
+WB_API const char* wb_sync_send_preview(const char* previewJson);
+
+// ---------------------------------------------------------------------------
+// CRDT (互动白板实时协同设计文档 §8.3, domain "crdt")
+// ---------------------------------------------------------------------------
+WB_API const char* wb_crdt_create(const char* docId, const char* actor);
+WB_API const char* wb_crdt_apply_local(const char* docId, const char* opJson);
 
 // ---------------------------------------------------------------------------
 // Permission / audit《C++ 核心引擎接口设计》§13

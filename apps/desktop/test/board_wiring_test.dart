@@ -34,7 +34,7 @@ Future<WbThemeState> _pumpEditor(WidgetTester tester) async {
   addTearDown(tester.view.reset);
 
   final WbThemeState theme = WbThemeState();
-  final WbSyncService sync = WbSyncService();
+  final WbCollabService sync = WbCollabService();
   addTearDown(() {
     theme.dispose();
     sync.dispose();
@@ -43,7 +43,7 @@ Future<WbThemeState> _pumpEditor(WidgetTester tester) async {
   await tester.pumpWidget(WhiteboardApp(
     ffiService: _demoFfi(),
     themeState: theme,
-    syncService: sync,
+    collabService: sync,
     shortcutService: WbShortcutService(),
   ));
   await tester.pumpAndSettle();
@@ -240,5 +240,47 @@ void main() {
     expect(find.byType(RadialToolbar), findsNothing);
     await gesture.up();
     await tester.pump();
+  });
+
+  testWidgets('协同 UI：默认本地入口（点击弹加入对话框）；参与者面板开 / 关（T1.7）',
+      (WidgetTester tester) async {
+    await _pumpEditor(tester);
+
+    // 交互改造：白板默认本地，演示模式（无引擎 → 离线）AppBar 显示
+    // 「互动白板」入口按钮，而非常驻状态 chip。
+    expect(find.byKey(const Key('wb-collab-entry')), findsOneWidget);
+    expect(find.text('互动白板'), findsOneWidget);
+    expect(find.byKey(const Key('wb-sync-status-chip')), findsNothing);
+
+    // 点击入口：弹出加入对话框（房间号输入 + 服务器地址提示）。
+    await tester.tap(find.byKey(const Key('wb-collab-entry')));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey<String>('wb-collab-join-dialog')),
+      findsOneWidget,
+    );
+    expect(find.textContaining('服务器地址：'), findsOneWidget);
+    await tester.tap(
+      find.byKey(const ValueKey<String>('wb-collab-join-cancel')),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey<String>('wb-collab-join-dialog')),
+      findsNothing,
+    );
+
+    // 参与者入口：打开 endDrawer 面板（无参与者 → 空态）。
+    await tester.tap(find.byKey(const Key('wb-participants-button')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('wb-participants-panel')), findsOneWidget);
+    expect(find.text('暂无其他参与者'), findsOneWidget);
+
+    // 「关闭」按钮收起面板。
+    await tester.tap(find.descendant(
+      of: find.byKey(const Key('wb-participants-panel')),
+      matching: find.byTooltip('关闭'),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('wb-participants-panel')), findsNothing);
   });
 }

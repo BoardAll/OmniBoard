@@ -282,6 +282,208 @@ void main() {
     });
   });
 
+  group('sync/crdt 响应类型（纯解析）', () {
+    test('WbSyncStatusData 解析与宽容缺省', () {
+      final WbSyncStatusData full = WbSyncStatusData.fromJson(<String, dynamic>{
+        'connected': true,
+        'endpoint': 'wss://sync.example/board',
+        'offline': false,
+        'participants': 2,
+        'pendingCount': 3,
+        'sentCount': 4,
+        'syncedCount': 5,
+        'latencyMs': 42,
+        'reconnectCount': 1,
+        'transport': 'socketio',
+        'transportState': 'connected',
+      });
+      expect(full.connected, isTrue);
+      expect(full.endpoint, 'wss://sync.example/board');
+      expect(full.participants, 2);
+      expect(full.pendingCount, 3);
+      expect(full.sentCount, 4);
+      expect(full.syncedCount, 5);
+      expect(full.latencyMs, 42);
+      expect(full.reconnectCount, 1);
+      expect(full.transport, 'socketio');
+      expect(full.transportState, 'connected');
+
+      final WbSyncStatusData blank =
+          WbSyncStatusData.fromJson(<String, dynamic>{});
+      expect(blank.connected, isFalse);
+      expect(blank.offline, isFalse);
+      expect(blank.participants, 0);
+      expect(blank.transport, '');
+      expect(blank.transportState, 'disconnected');
+    });
+
+    test('WbSyncEventsData 解析 ops/previews/room/status', () {
+      final WbSyncEventsData data = WbSyncEventsData.fromJson(<String, dynamic>{
+        'ops': <dynamic>[
+          <String, dynamic>{
+            'actor': 'u2',
+            'seq': 2,
+            'key': 'a',
+            'value': 1,
+            'origin': 'remote',
+          },
+          <String, dynamic>{
+            'actor': 'u3',
+            'seq': 3,
+            'key': 'b',
+            'value': 2,
+            'origin': 'remote',
+          },
+        ],
+        'previews': <dynamic>[
+          <String, dynamic>{'kind': 'transform', 'x': 1.5},
+        ],
+        'room': <String, dynamic>{
+          'participants': <dynamic>['u1', 'u2'],
+          'mode': 'free',
+          'locks': <dynamic>[
+            <String, dynamic>{'key': 'a', 'actor': 'u1'},
+          ],
+        },
+        'status': <String, dynamic>{'connected': true, 'pendingCount': 1},
+      });
+      expect(data.ops, hasLength(2));
+      expect(data.ops.first['actor'], 'u2');
+      expect(data.ops.first['origin'], 'remote');
+      expect(data.previews, hasLength(1));
+      expect(data.previews.first['kind'], 'transform');
+      expect(data.room.participants, <dynamic>['u1', 'u2']);
+      expect(data.room.mode, 'free');
+      expect(data.room.locks, hasLength(1));
+      expect(data.status.connected, isTrue);
+      expect(data.status.pendingCount, 1);
+
+      final WbSyncEventsData empty =
+          WbSyncEventsData.fromJson(<String, dynamic>{});
+      expect(empty.ops, isEmpty);
+      expect(empty.previews, isEmpty);
+      expect(empty.room.mode, '');
+      expect(empty.room.participants, isEmpty);
+      expect(empty.room.locks, isEmpty);
+      expect(empty.status.connected, isFalse);
+    });
+
+    test('join / sendOperation / flush / sendPreview 响应解析', () {
+      final WbSyncJoinData joined = WbSyncJoinData.fromJson(<String, dynamic>{
+        'boardId': 'board-1',
+        'joined': true,
+        'pageId': 'page-2',
+      });
+      expect(joined.boardId, 'board-1');
+      expect(joined.joined, isTrue);
+      expect(joined.pageId, 'page-2');
+      expect(
+        WbSyncJoinData.fromJson(<String, dynamic>{'boardId': 'board-2'}).pageId,
+        isNull,
+      );
+
+      final WbSyncSendResult queued = WbSyncSendResult.fromJson(<String, dynamic>{
+        'queued': true,
+        'sent': false,
+        'pendingCount': 2,
+        'syncedCount': 4,
+      });
+      expect(queued.sent, isFalse);
+      expect(queued.queued, isTrue);
+      expect(queued.pendingCount, 2);
+      expect(queued.syncedCount, 4);
+
+      final WbSyncFlushData flushed = WbSyncFlushData.fromJson(<String, dynamic>{
+        'synced': 3,
+        'pendingCount': 0,
+        'syncedCount': 7,
+      });
+      expect(flushed.synced, 3);
+      expect(flushed.pendingCount, 0);
+      expect(flushed.syncedCount, 7);
+
+      final WbSyncPreviewResult sent =
+          WbSyncPreviewResult.fromJson(<String, dynamic>{'sent': true});
+      expect(sent.sent, isTrue);
+      expect(sent.dropped, isFalse);
+      final WbSyncPreviewResult dropped =
+          WbSyncPreviewResult.fromJson(<String, dynamic>{'dropped': true});
+      expect(dropped.sent, isFalse);
+      expect(dropped.dropped, isTrue);
+    });
+
+    test('WbCrdtCreateData / WbCrdtApplyData 解析（含 op 字段）', () {
+      final WbCrdtCreateData created = WbCrdtCreateData.fromJson(<String, dynamic>{
+        'docId': 'board-1',
+        'actor': 'm1',
+        'version': 0,
+      });
+      expect(created.docId, 'board-1');
+      expect(created.actor, 'm1');
+      expect(created.version, 0);
+
+      final WbCrdtApplyData applied = WbCrdtApplyData.fromJson(<String, dynamic>{
+        'applied': true,
+        'docId': 'board-1',
+        'key': 'title',
+        'origin': 'local',
+        'seq': 1,
+        'version': 1,
+        'op': <String, dynamic>{
+          'actor': 'm1',
+          'seq': 1,
+          'key': 'title',
+          'value': 'hello',
+          'origin': 'local',
+          'timestamp': 123456,
+        },
+      });
+      expect(applied.applied, isTrue);
+      expect(applied.docId, 'board-1');
+      expect(applied.key, 'title');
+      expect(applied.origin, 'local');
+      expect(applied.seq, 1);
+      expect(applied.version, 1);
+      expect(applied.op['actor'], 'm1');
+      expect(applied.op['seq'], 1);
+      expect(applied.op['key'], 'title');
+      expect(applied.op['value'], 'hello');
+      expect(applied.op['origin'], 'local');
+      expect(applied.op['timestamp'], 123456);
+
+      final WbCrdtApplyData blank =
+          WbCrdtApplyData.fromJson(<String, dynamic>{});
+      expect(blank.applied, isFalse);
+      expect(blank.origin, 'local');
+      expect(blank.op, isEmpty);
+    });
+
+    test('sync 信封 ok / error 两路径', () {
+      final WbResponse success = WbResponse.parse(
+        '{"ok":true,"result":{"connected":false,"transport":"socketio"}}',
+      );
+      expect(success.ok, isTrue);
+      final WbSyncStatusData data =
+          WbSyncStatusData.fromJson(success.requireResult());
+      expect(data.connected, isFalse);
+      expect(data.transport, 'socketio');
+
+      final WbResponse failure = WbResponse.parse(
+        '{"ok":false,"error":{"code":"Conflict",'
+        '"message":"sync transport is not connected"}}',
+      );
+      expect(failure.ok, isFalse);
+      expect(failure.code, 'Conflict');
+      expect(
+        failure.requireResult,
+        throwsA(isA<WbCoreException>()
+            .having((WbCoreException e) => e.code, 'code', 'Conflict')
+            .having((WbCoreException e) => e.message, 'message',
+                'sync transport is not connected')),
+      );
+    });
+  });
+
   group('native smoke (wb_core.dll)', () {
     final String dllPath = _findWbCoreDll();
     final bool available = dllPath.isNotEmpty;
@@ -329,6 +531,184 @@ void main() {
       boards.destroy(handle);
       ffi.shutdown();
     }, skip: available ? false : 'wb_core.dll 不存在，跳过原生冒烟');
+  });
+
+  group('sync/crdt native (wb_core.dll)', () {
+    final String dllPath = _findWbCoreDll();
+    final bool available = dllPath.isNotEmpty;
+
+    test('绑定表暴露 11 个协同符号', () {
+      final WbCoreFfi ffi = WbCoreFfi.load(overridePath: dllPath);
+      final WbCoreBindings bindings = ffi.bindings;
+      // 控制面（既有 4）。
+      expect(bindings.wbSyncConnect, isNotNull);
+      expect(bindings.wbSyncDisconnect, isNotNull);
+      expect(bindings.wbSyncStatus, isNotNull);
+      expect(bindings.wbSyncSetOffline, isNotNull);
+      // 数据面（M1 新增 5）。
+      expect(bindings.wbSyncJoin, isNotNull);
+      expect(bindings.wbSyncSendOperation, isNotNull);
+      expect(bindings.wbSyncFlush, isNotNull);
+      expect(bindings.wbSyncEvents, isNotNull);
+      expect(bindings.wbSyncSendPreview, isNotNull);
+      // CRDT（M1 新增 2）。
+      expect(bindings.wbCrdtCreate, isNotNull);
+      expect(bindings.wbCrdtApplyLocal, isNotNull);
+    }, skip: available ? false : 'wb_core.dll 不存在，跳过 sync/crdt 原生回归');
+
+    test('connect 空 endpoint → InvalidArgument', () {
+      final WbSyncService sync =
+          WbSyncService(WbCoreFfi.load(overridePath: dllPath));
+      expect(
+        () => sync.connect(endpoint: ''),
+        throwsA(isA<WbCoreException>()
+            .having((WbCoreException e) => e.code, 'code', 'InvalidArgument')),
+      );
+    }, skip: available ? false : 'wb_core.dll 不存在，跳过 sync/crdt 原生回归');
+
+    test('status / setOffline 状态快照', () {
+      final WbSyncService sync =
+          WbSyncService(WbCoreFfi.load(overridePath: dllPath));
+      final WbSyncStatusData offline = sync.setOffline(false);
+      expect(offline.offline, isFalse);
+      final WbSyncStatusData snapshot = sync.status();
+      expect(snapshot.connected, isFalse);
+      expect(snapshot.endpoint, '');
+      expect(snapshot.transport, 'socketio');
+      expect(snapshot.transportState, 'disconnected');
+      expect(snapshot.participants, 0);
+    }, skip: available ? false : 'wb_core.dll 不存在，跳过 sync/crdt 原生回归');
+
+    test('join 参数校验与未连接 Conflict', () {
+      final WbSyncService sync =
+          WbSyncService(WbCoreFfi.load(overridePath: dllPath));
+      expect(
+        () => sync.join(''),
+        throwsA(isA<WbCoreException>()
+            .having((WbCoreException e) => e.code, 'code', 'InvalidArgument')),
+      );
+      expect(
+        () => sync.join('board-m1-dart'),
+        throwsA(isA<WbCoreException>()
+            .having((WbCoreException e) => e.code, 'code', 'Conflict')),
+      );
+    }, skip: available ? false : 'wb_core.dll 不存在，跳过 sync/crdt 原生回归');
+
+    test('sendOperation 未连接入队 / flush Conflict / events drain', () {
+      final WbSyncService sync =
+          WbSyncService(WbCoreFfi.load(overridePath: dllPath));
+      sync.setOffline(false); // 归一化，保证断言确定性。
+
+      expect(
+        () => sync.sendOperation(const <String, dynamic>{}),
+        throwsA(isA<WbCoreException>()
+            .having((WbCoreException e) => e.code, 'code', 'InvalidArgument')),
+      );
+
+      final WbSyncSendResult first = sync.sendOperation(
+        const <String, dynamic>{'key': 'm1-k1', 'value': 'v1'},
+      );
+      expect(first.sent, isFalse);
+      expect(first.queued, isTrue);
+      expect(first.pendingCount, greaterThanOrEqualTo(1));
+
+      final WbSyncSendResult second = sync.sendOperation(
+        const <String, dynamic>{'key': 'm1-k2', 'value': 'v2'},
+      );
+      expect(second.pendingCount, first.pendingCount + 1);
+
+      expect(
+        () => sync.flush(),
+        throwsA(isA<WbCoreException>()
+            .having((WbCoreException e) => e.code, 'code', 'Conflict')),
+      );
+
+      final WbSyncEventsData events = sync.events();
+      expect(events.ops, isEmpty);
+      expect(events.previews, isEmpty);
+      expect(events.room.mode, '');
+      expect(events.room.participants, isEmpty);
+      expect(events.room.locks, isEmpty);
+      expect(events.status.pendingCount, greaterThanOrEqualTo(second.pendingCount));
+    }, skip: available ? false : 'wb_core.dll 不存在，跳过 sync/crdt 原生回归');
+
+    test('sendPreview 参数校验与未连接 dropped', () {
+      final WbSyncService sync =
+          WbSyncService(WbCoreFfi.load(overridePath: dllPath));
+      expect(
+        () => sync.sendPreview(const <String, dynamic>{}),
+        throwsA(isA<WbCoreException>()
+            .having((WbCoreException e) => e.code, 'code', 'InvalidArgument')),
+      );
+      final WbSyncPreviewResult result = sync.sendPreview(
+        const <String, dynamic>{'kind': 'transform', 'x': 1.0},
+      );
+      expect(result.dropped, isTrue);
+      expect(result.sent, isFalse);
+    }, skip: available ? false : 'wb_core.dll 不存在，跳过 sync/crdt 原生回归');
+
+    test('crdt create / applyLocal / op 直发 / NotFound', () {
+      final WbCoreFfi ffi = WbCoreFfi.load(overridePath: dllPath);
+      final WbCrdtService crdt = WbCrdtService(ffi);
+      final WbSyncService sync = WbSyncService(ffi);
+
+      final WbCrdtCreateData created =
+          crdt.create('board-m1-dart', actor: 'm1-dart');
+      expect(created.docId, 'board-m1-dart');
+      expect(created.actor, 'm1-dart');
+      expect(created.version, 0);
+
+      expect(
+        () => crdt.create('board-m1-dart'),
+        throwsA(isA<WbCoreException>()
+            .having((WbCoreException e) => e.code, 'code', 'Conflict')),
+      );
+
+      final WbCrdtApplyData applied = crdt.applyLocal(
+        'board-m1-dart',
+        const <String, dynamic>{'key': 'title', 'value': 'hello'},
+      );
+      expect(applied.applied, isTrue);
+      expect(applied.docId, 'board-m1-dart');
+      expect(applied.key, 'title');
+      expect(applied.origin, 'local');
+      expect(applied.seq, 1);
+      expect(applied.version, 1);
+      expect(applied.op['actor'], 'm1-dart');
+      expect(applied.op['seq'], 1);
+      expect(applied.op['key'], 'title');
+      expect(applied.op['value'], 'hello');
+      expect(applied.op['origin'], 'local');
+      expect(applied.op['timestamp'], isA<int>());
+
+      // 响应 op 为完整规范化对象，可直接走 sendOperation（未连接 → 入队）。
+      final WbSyncSendResult forwarded = sync.sendOperation(applied.op);
+      expect(forwarded.queued, isTrue);
+      expect(forwarded.sent, isFalse);
+
+      expect(
+        () => crdt.applyLocal(
+          'missing-m1-doc',
+          const <String, dynamic>{'key': 'k', 'value': 1},
+        ),
+        throwsA(isA<WbCoreException>()
+            .having((WbCoreException e) => e.code, 'code', 'NotFound')),
+      );
+    }, skip: available ? false : 'wb_core.dll 不存在，跳过 sync/crdt 原生回归');
+
+    test('crdt create 空 docId 自动生成 / applyLocal 缺 key', () {
+      final WbCrdtService crdt =
+          WbCrdtService(WbCoreFfi.load(overridePath: dllPath));
+      final WbCrdtCreateData auto = crdt.create('');
+      expect(auto.docId, startsWith('crdt-'));
+      expect(auto.actor, 'local');
+
+      expect(
+        () => crdt.applyLocal(auto.docId, const <String, dynamic>{}),
+        throwsA(isA<WbCoreException>()
+            .having((WbCoreException e) => e.code, 'code', 'InvalidArgument')),
+      );
+    }, skip: available ? false : 'wb_core.dll 不存在，跳过 sync/crdt 原生回归');
   });
 }
 

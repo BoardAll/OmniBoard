@@ -91,6 +91,10 @@ class WbFfiService {
   WbToolService get tool => WbToolService(_require());
   WbBackgroundService get background => WbBackgroundService(_require());
 
+  WbSyncService get sync => WbSyncService(_require());
+
+  WbCrdtService get crdt => WbCrdtService(_require());
+
   WbCoreFfi _require() {
     final WbCoreFfi? ffi = _ffi;
     if (ffi == null) {
