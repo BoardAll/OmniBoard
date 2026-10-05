@@ -13,6 +13,7 @@
 /// 手势 / 文本输入驱动；组件自包含，测试不注入 Provider / 主题扩展。
 library;
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:whiteboard_desktop/widgets/canvas/canvas_model.dart';
@@ -207,7 +208,7 @@ void main() {
       expect(stripped.nodeById('n2')!.laneId, 'l2');
     });
 
-    test('自动布局 tb：Kahn 分层 + 同层排布 + 画布钳制', () {
+    test('自动布局 tb：Kahn 分层 + 固定间距（同层 80 / 层间 60），不再钳制画布', () {
       const WbFlowchartModel model = WbFlowchartModel(
         nodes: <WbFlowNode>[
           WbFlowNode(id: 'n1', x: 0, y: 0, type: WbFlowNodeType.start),
@@ -229,15 +230,24 @@ void main() {
       );
       double x(String id) => laid.nodeById(id)!.x;
       double y(String id) => laid.nodeById(id)!.y;
+      double w(String id) => laid.nodeById(id)!.width;
+      double h(String id) => laid.nodeById(id)!.height;
       expect(y('n1'), lessThan(y('n2')));
       expect(y('n2'), lessThan(y('n3')));
       expect(y('n3'), lessThan(y('n4')));
       expect(y('n4'), y('n5'), reason: '同层共享 y');
       expect(x('n4'), lessThan(x('n5')), reason: '同层按插入序水平排开');
+      // 固定间距：层间 60（下层 y = 上层 y + 层高 + 60）。
+      expect(y('n2') - (y('n1') + h('n1')), closeTo(60, 1e-6));
+      expect(y('n3') - (y('n2') + h('n2')), closeTo(60, 1e-6));
+      expect(y('n4') - (y('n3') + h('n3')), closeTo(60, 1e-6));
+      // 同层水平间距 80。
+      expect(x('n5') - (x('n4') + w('n4')), closeTo(80, 1e-6));
+      // 无限画布口径：不再钳制进画布，坐标有限；锚点取内容包围盒顶边。
       for (final WbFlowNode node in laid.nodes) {
-        expect(node.x, inInclusiveRange(0, 400 - node.width));
-        expect(node.y, inInclusiveRange(0, 400 - node.height));
+        expect(node.x.isFinite && node.y.isFinite, isTrue);
       }
+      expect(y('n1'), closeTo(0, 1e-6), reason: '锚点 = 内容包围盒顶边');
     });
 
     test('自动布局 lr：主方向为 x', () {
@@ -262,6 +272,10 @@ void main() {
       final double x3 = laid.nodeById('n3')!.x;
       expect(x1, lessThan(x2));
       expect(x2, lessThan(x3));
+      // 层间（x 方向）固定间距 80；锚点 = 画布轴心。
+      expect(x2 - (x1 + laid.nodeById('n1')!.width), closeTo(80, 1e-6));
+      expect(x3 - (x2 + laid.nodeById('n2')!.width), closeTo(80, 1e-6));
+      expect(x1, closeTo(250, 1e-6), reason: 'lr 锚点 = 画布宽度轴心');
     });
 
     test('自动布局环回退：不丢节点不挂死', () {
@@ -288,11 +302,23 @@ void main() {
       expect(a.x != b.x || a.y != b.y, isTrue);
     });
 
-    test('内置模板 5 个且结构完整、均可布局', () {
-      expect(wbFlowTemplates.length, 5);
+    test('内置模板 7 个且结构完整、均可布局', () {
+      expect(wbFlowTemplates.length, 7);
       final Set<String> ids =
           wbFlowTemplates.map((WbFlowTemplate t) => t.id).toSet();
-      expect(ids, containsAll(<String>['basic', 'approval', 'login', 'swimlane', 'branch']));
+      expect(
+        ids,
+        containsAll(<String>[
+          'basic',
+          'approval',
+          'login',
+          'swimlane',
+          'branch',
+          'uml',
+          'dfd',
+        ]),
+      );
+      expect(ids.length, wbFlowTemplates.length, reason: '模板 id 唯一');
 
       final WbFlowchartModel approval = wbFlowTemplates
           .firstWhere((WbFlowTemplate t) => t.id == 'approval')
@@ -315,6 +341,42 @@ void main() {
         isTrue,
       );
 
+      // UML 类图模板：三段式类框 + 继承箭头。
+      final WbFlowchartModel uml = wbFlowTemplates
+          .firstWhere((WbFlowTemplate t) => t.id == 'uml')
+          .build();
+      expect(
+        uml.nodes
+            .where((WbFlowNode n) => n.type == WbFlowNodeType.umlClass)
+            .length,
+        3,
+      );
+      expect(
+        uml.nodes
+            .firstWhere((WbFlowNode n) => n.id == 'n1')
+            .compartments
+            .length,
+        3,
+      );
+      expect(
+        uml.connectors.every(
+          (WbFlowConnector c) => c.arrow == WbFlowArrowStyle.inherit,
+        ),
+        isTrue,
+      );
+
+      // 数据流图模板：开放箭头。
+      final WbFlowchartModel dfd = wbFlowTemplates
+          .firstWhere((WbFlowTemplate t) => t.id == 'dfd')
+          .build();
+      expect(dfd.nodes.length, 4);
+      expect(
+        dfd.connectors.every(
+          (WbFlowConnector c) => c.arrow == WbFlowArrowStyle.open,
+        ),
+        isTrue,
+      );
+
       for (final WbFlowTemplate template in wbFlowTemplates) {
         final WbFlowchartModel built = template.build();
         final WbFlowchartModel laid = WbFlowAutoLayout.apply(
@@ -330,6 +392,258 @@ void main() {
           );
         }
       }
+    });
+
+    test('图形库 8 库 / 40 类型：分组计数、默认尺寸抽查与 id 往返', () {
+      expect(WbFlowNodeType.values.length, 40);
+      const Map<WbFlowShapeLibrary, int> expectedCounts =
+          <WbFlowShapeLibrary, int>{
+        WbFlowShapeLibrary.flowchart: 9,
+        WbFlowShapeLibrary.umlClass: 7,
+        WbFlowShapeLibrary.umlSequence: 3,
+        WbFlowShapeLibrary.umlUseCase: 3,
+        WbFlowShapeLibrary.umlState: 4,
+        WbFlowShapeLibrary.dfd: 3,
+        WbFlowShapeLibrary.circuit: 10,
+        WbFlowShapeLibrary.custom: 1,
+      };
+      for (final MapEntry<WbFlowShapeLibrary, int> entry
+          in expectedCounts.entries) {
+        expect(
+          WbFlowNodeType.values
+              .where((WbFlowNodeType t) => t.library == entry.key)
+              .length,
+          entry.value,
+          reason: entry.key.id,
+        );
+      }
+      // 既有类型默认尺寸（新建节点时采用）。
+      expect(WbFlowNodeType.umlClass.defaultWidth, 160);
+      expect(WbFlowNodeType.umlClass.defaultHeight, 120);
+      expect(WbFlowNodeType.umlActor.defaultWidth, 48);
+      expect(WbFlowNodeType.umlActor.defaultHeight, 78);
+      expect(WbFlowNodeType.umlUseCase.defaultWidth, 140);
+      expect(WbFlowNodeType.umlUseCase.defaultHeight, 60);
+      expect(WbFlowNodeType.umlPackage.defaultWidth, 140);
+      expect(WbFlowNodeType.umlPackage.defaultHeight, 80);
+      expect(WbFlowNodeType.umlNote.defaultWidth, 140);
+      expect(WbFlowNodeType.umlNote.defaultHeight, 70);
+      expect(WbFlowNodeType.dfdExternal.defaultWidth, 140);
+      expect(WbFlowNodeType.dfdExternal.defaultHeight, 60);
+      expect(WbFlowNodeType.dfdProcess.defaultWidth, 96);
+      expect(WbFlowNodeType.dfdProcess.defaultHeight, 96);
+      expect(WbFlowNodeType.dfdStore.defaultWidth, 150);
+      expect(WbFlowNodeType.dfdStore.defaultHeight, 50);
+      // 新增类型默认尺寸抽查（类图细化 / 时序图 / 用例图 / 状态图 /
+      // 电路图 / 组件）。
+      expect(WbFlowNodeType.umlInterface.defaultWidth, 160);
+      expect(WbFlowNodeType.umlInterface.defaultHeight, 120);
+      expect(WbFlowNodeType.umlSimpleClass.defaultWidth, 140);
+      expect(WbFlowNodeType.umlSimpleClass.defaultHeight, 50);
+      expect(WbFlowNodeType.umlSimpleInterface.defaultWidth, 140);
+      expect(WbFlowNodeType.umlSimpleInterface.defaultHeight, 56);
+      expect(WbFlowNodeType.umlMultiton.defaultWidth, 160);
+      expect(WbFlowNodeType.umlMultiton.defaultHeight, 120);
+      expect(WbFlowNodeType.umlLifeline.defaultWidth, 120);
+      expect(WbFlowNodeType.umlLifeline.defaultHeight, 160);
+      expect(WbFlowNodeType.umlActivation.defaultWidth, 14);
+      expect(WbFlowNodeType.umlActivation.defaultHeight, 80);
+      expect(WbFlowNodeType.umlObject.defaultWidth, 140);
+      expect(WbFlowNodeType.umlObject.defaultHeight, 46);
+      expect(WbFlowNodeType.umlSystem.defaultWidth, 300);
+      expect(WbFlowNodeType.umlSystem.defaultHeight, 220);
+      expect(WbFlowNodeType.umlState.defaultWidth, 140);
+      expect(WbFlowNodeType.umlState.defaultHeight, 60);
+      expect(WbFlowNodeType.umlInitial.defaultWidth, 24);
+      expect(WbFlowNodeType.umlFinal.defaultWidth, 28);
+      expect(WbFlowNodeType.umlChoice.defaultWidth, 48);
+      expect(WbFlowNodeType.circuitResistor.defaultWidth, 64);
+      expect(WbFlowNodeType.circuitResistor.defaultHeight, 24);
+      expect(WbFlowNodeType.circuitBattery.defaultWidth, 48);
+      expect(WbFlowNodeType.circuitDcSource.defaultWidth, 52);
+      expect(WbFlowNodeType.circuitGround.defaultHeight, 28);
+      expect(WbFlowNodeType.circuitJunction.defaultWidth, 18);
+      expect(WbFlowNodeType.customComponent.defaultWidth, 120);
+      expect(WbFlowNodeType.customComponent.defaultHeight, 120);
+      // 默认尺寸回退到通用节点尺寸（流程图分组未显式声明的类型）。
+      expect(
+        WbFlowNodeType.process.defaultWidth,
+        WbContextMetrics.flowNodeWidth,
+      );
+      expect(
+        WbFlowNodeType.process.defaultHeight,
+        WbContextMetrics.flowNodeHeight,
+      );
+      // 类型 / 箭头样式 id 往返与未知回退。
+      for (final WbFlowNodeType type in WbFlowNodeType.values) {
+        expect(WbFlowNodeType.fromId(type.id), type);
+      }
+      for (final WbFlowArrowStyle style in WbFlowArrowStyle.values) {
+        expect(WbFlowArrowStyle.fromId(style.id), style);
+      }
+      expect(WbFlowNodeType.fromId('unknown'), WbFlowNodeType.process);
+      expect(WbFlowArrowStyle.fromId('unknown'), WbFlowArrowStyle.arrow);
+    });
+
+    test('UML 类节点 compartments 三段与展示文本', () {
+      const WbFlowNode node = WbFlowNode(
+        id: 'c1',
+        x: 0,
+        y: 0,
+        type: WbFlowNodeType.umlClass,
+        text: 'Order',
+        compartments: <String>['Order', '+ id: String', '+ pay(): void'],
+      );
+      expect(node.displayText, 'Order\n+ id: String\n+ pay(): void');
+
+      // 无 compartments 回退单文本。
+      const WbFlowNode plain = WbFlowNode(id: 'p', x: 0, y: 0, text: '处理');
+      expect(plain.displayText, '处理');
+
+      // 模型级更新 compartments；空段在展示时被过滤。
+      final WbFlowchartModel model = const WbFlowchartModel(
+        nodes: <WbFlowNode>[node],
+      ).updateNode(
+        'c1',
+        compartments: <String>['Order', '', '+ pay(): void'],
+      );
+      expect(model.nodeById('c1')!.displayText, 'Order\n+ pay(): void');
+
+      // copyWith 未指定 compartments 时保持原值。
+      expect(node.copyWith(text: '改名').compartments, node.compartments);
+    });
+
+    test('类图三段式与构造型口径（WbFlowUmlClassLayout）', () {
+      expect(
+        WbFlowUmlClassLayout.isThreeSegment(WbFlowNodeType.umlClass),
+        isTrue,
+      );
+      expect(
+        WbFlowUmlClassLayout.isThreeSegment(WbFlowNodeType.umlInterface),
+        isTrue,
+      );
+      expect(
+        WbFlowUmlClassLayout.isThreeSegment(WbFlowNodeType.umlMultiton),
+        isTrue,
+      );
+      expect(
+        WbFlowUmlClassLayout.isThreeSegment(WbFlowNodeType.umlSimpleClass),
+        isFalse,
+      );
+      expect(
+        WbFlowUmlClassLayout.stereotypeOf(WbFlowNodeType.umlInterface),
+        '«interface»',
+      );
+      expect(
+        WbFlowUmlClassLayout.stereotypeOf(WbFlowNodeType.umlSimpleInterface),
+        '«interface»',
+      );
+      expect(
+        WbFlowUmlClassLayout.stereotypeOf(WbFlowNodeType.umlMultiton),
+        '«多例»',
+      );
+      expect(WbFlowUmlClassLayout.stereotypeOf(WbFlowNodeType.umlClass), '');
+      // 名带：无构造型 28 / 含构造型行 42；分隔线在名带底与剩余均分处。
+      expect(WbFlowUmlClassLayout.nameBand(hasStereotype: false), 28);
+      expect(WbFlowUmlClassLayout.nameBand(hasStereotype: true), 42);
+      expect(
+        WbFlowUmlClassLayout.dividers(WbFlowNodeType.umlClass, 120),
+        <double>[28, 74],
+      );
+      expect(
+        WbFlowUmlClassLayout.dividers(WbFlowNodeType.umlInterface, 120),
+        <double>[42, 81],
+      );
+    });
+
+    test('WbFlowShapeSpec 放置尺寸：静态取默认、组件长边 ≤160 等比', () {
+      const WbFlowShapeSpec plain = WbFlowShapeSpec(
+        type: WbFlowNodeType.umlClass,
+      );
+      expect(plain.preferredSize, const Size(160, 120));
+
+      const WbFlowComponent wide = WbFlowComponent(
+        id: 'cmp-wide',
+        name: '宽图',
+        mime: WbFlowComponent.mimePng,
+        data: 'eA==',
+        width: 320,
+        height: 160,
+      );
+      const WbFlowShapeSpec wideSpec = WbFlowShapeSpec(
+        type: WbFlowNodeType.customComponent,
+        component: wide,
+      );
+      expect(wideSpec.preferredSize, const Size(160, 80));
+
+      const WbFlowComponent small = WbFlowComponent(
+        id: 'cmp-small',
+        name: '小图',
+        mime: WbFlowComponent.mimePng,
+        data: 'eA==',
+        width: 48,
+        height: 48,
+      );
+      const WbFlowShapeSpec smallSpec = WbFlowShapeSpec(
+        type: WbFlowNodeType.customComponent,
+        component: small,
+      );
+      expect(smallSpec.preferredSize, const Size(48, 48));
+    });
+
+    test('批量平移 / 批量删除与连线属性更新', () {
+      final WbFlowchartModel base = WbFlowchartModel.sample();
+
+      // 平移仅作用于选中集合。
+      final WbFlowchartModel moved =
+          base.translateNodes(<String>{'n1', 'n3'}, const Offset(10, -5));
+      expect(
+        moved.nodeById('n1')!.x,
+        closeTo(base.nodeById('n1')!.x + 10, 1e-6),
+      );
+      expect(
+        moved.nodeById('n1')!.y,
+        closeTo(base.nodeById('n1')!.y - 5, 1e-6),
+      );
+      expect(
+        moved.nodeById('n3')!.x,
+        closeTo(base.nodeById('n3')!.x + 10, 1e-6),
+      );
+      expect(
+        identical(moved.nodeById('n2'), base.nodeById('n2')),
+        isTrue,
+        reason: '未选中节点保持原实例',
+      );
+      expect(
+        identical(base.translateNodes(<String>{}, Offset.zero), base),
+        isTrue,
+        reason: '空集返回自身',
+      );
+
+      // 批量删除级联清理连线；未知 id 返回自身。
+      final WbFlowchartModel removed = base.removeNodes(<String>{'n2'});
+      expect(removed.nodes.length, 2);
+      expect(removed.connectors, isEmpty, reason: '删除节点级联清理连线');
+      expect(identical(base.removeNodes(<String>{'zz'}), base), isTrue);
+
+      // 连线标签与箭头样式更新；未知连线返回自身。
+      final WbFlowchartModel styled = base.updateConnector(
+        'c1',
+        label: '是',
+        arrow: WbFlowArrowStyle.inherit,
+      );
+      expect(styled.connectors.first.label, '是');
+      expect(styled.connectors.first.arrow, WbFlowArrowStyle.inherit);
+      expect(identical(base.updateConnector('zz', label: 'x'), base), isTrue);
+    });
+
+    test('端口四向锚点位于节点四边中点', () {
+      const Rect bounds = Rect.fromLTWH(100, 200, 132, 46);
+      expect(WbFlowPortSide.top.anchorOn(bounds), const Offset(166, 200));
+      expect(WbFlowPortSide.right.anchorOn(bounds), const Offset(232, 223));
+      expect(WbFlowPortSide.bottom.anchorOn(bounds), const Offset(166, 246));
+      expect(WbFlowPortSide.left.anchorOn(bounds), const Offset(100, 223));
+      expect(WbFlowPortSide.values.length, 4);
     });
   });
 
@@ -429,6 +743,33 @@ void main() {
       expect(models.last.nodes.length, 3);
     });
 
+    testWidgets('添加节点按钮复用最近创建的类型（工具条无类型芯片）', (
+      WidgetTester tester,
+    ) async {
+      final List<WbFlowchartModel> models = <WbFlowchartModel>[];
+      await _pumpEditor(tester, WbFlowchartEditor(onChanged: models.add));
+      await tester.pump();
+
+      // 工具条不再渲染类型芯片（图形库承担选择）。
+      expect(
+        find.byKey(_key('wb-ctx-flow-type-start')),
+        findsNothing,
+      );
+
+      // 图形库点击「开始」→ 创建 start 节点并记为待添加类型。
+      final Finder startItem = find.byKey(_key('wb-ctx-flow-shape-start'));
+      await tester.ensureVisible(startItem);
+      await tester.pump();
+      await tester.tap(startItem);
+      await tester.pump();
+      expect(models.last.nodes.last.type, WbFlowNodeType.start);
+
+      // 「添加节点」按钮沿用最近创建的类型。
+      await tester.tap(find.byKey(_key('wb-ctx-flow-add-node')));
+      await tester.pump();
+      expect(models.last.nodes.last.type, WbFlowNodeType.start);
+    });
+
     testWidgets('连线模式：依次点击两个节点创建连线', (WidgetTester tester) async {
       final List<WbFlowchartModel> models = <WbFlowchartModel>[];
       await _pumpEditor(tester, WbFlowchartEditor(onChanged: models.add));
@@ -479,9 +820,28 @@ void main() {
 
       await tester.tap(find.byKey(_key('wb-ctx-flow-template-toggle')));
       await tester.pump();
-      expect(find.byKey(_key('wb-ctx-flow-template-approval')), findsOneWidget);
+      // 40 类型图形库使模板面板成为列表第二个懒构建子项（视口外不构建）：
+      // 直接把左面板滚动到底部再断言。
+      final ScrollableState panelScrollable = tester.state<ScrollableState>(
+        find
+            .descendant(
+              of: find.byKey(_key('wb-ctx-flow-left-panel')),
+              matching: find.byType(Scrollable),
+            )
+            .first,
+      );
+      panelScrollable.position.jumpTo(
+        panelScrollable.position.maxScrollExtent,
+      );
+      // 估算值与实际内容高度存在偏差（懒构建），等待位置修正动画完成。
+      await tester.pumpAndSettle();
+      final Finder approval = find.byKey(_key('wb-ctx-flow-template-approval'));
+      expect(approval, findsOneWidget);
 
-      await tester.tap(find.byKey(_key('wb-ctx-flow-template-approval')));
+      // 面板超出一屏，先滚动到可见区再点。
+      await tester.ensureVisible(approval);
+      await tester.pump();
+      await tester.tap(approval);
       await tester.pump();
       final WbFlowchartModel applied = models.last;
       expect(applied.templateId, 'approval');
@@ -524,6 +884,234 @@ void main() {
       );
       await tester.pump();
       expect(find.byKey(_key('wb-ctx-editor-close')), findsNothing);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // 流程图：图形库扩展（折叠 / 更多图形 / 我的组件 / 三段编辑）
+  // -------------------------------------------------------------------------
+
+  group('流程图图形库扩展（ProcessOn 式分库）', () {
+    const WbFlowComponent component = WbFlowComponent(
+      id: 'cmp-1',
+      name: '星形',
+      mime: WbFlowComponent.mimePng,
+      data: 'AA==',
+      width: 120,
+      height: 120,
+    );
+
+    testWidgets('分组折叠 / 展开：点击 toggle 显隐图形项并持久化', (
+      WidgetTester tester,
+    ) async {
+      final WbFlowMemoryLibraryStore store = WbFlowMemoryLibraryStore();
+      await _pumpEditor(tester, WbFlowchartEditor(libraryStore: store));
+      await tester.pump();
+
+      expect(
+        find.byKey(_key('wb-ctx-flow-shape-start')),
+        findsOneWidget,
+        reason: '默认展开',
+      );
+
+      await tester.tap(find.byKey(_key('wb-ctx-flow-lib-toggle-flowchart')));
+      await tester.pump();
+      expect(find.byKey(_key('wb-ctx-flow-shape-start')), findsNothing);
+      expect(
+        store.read()!.collapsedLibraries,
+        contains('flowchart'),
+        reason: '折叠态持久化',
+      );
+
+      await tester.tap(find.byKey(_key('wb-ctx-flow-lib-toggle-flowchart')));
+      await tester.pump();
+      expect(find.byKey(_key('wb-ctx-flow-shape-start')), findsOneWidget);
+      expect(store.read()!.collapsedLibraries, isNot(contains('flowchart')));
+    });
+
+    testWidgets('更多图形对话框：取消勾选隐藏分组、勾回恢复并持久化', (
+      WidgetTester tester,
+    ) async {
+      final WbFlowMemoryLibraryStore store = WbFlowMemoryLibraryStore();
+      await _pumpEditor(tester, WbFlowchartEditor(libraryStore: store));
+      await tester.pump();
+
+      final Finder more = find.byKey(_key('wb-ctx-flow-more-shapes'));
+      await tester.ensureVisible(more);
+      await tester.pump();
+      await tester.tap(more);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 200));
+
+      expect(
+        find.byKey(_key('wb-ctx-flow-more-shapes-dialog')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(_key('wb-ctx-flow-lib-toggle-circuit')),
+        findsOneWidget,
+        reason: '默认全部勾选（电路图分组可见）',
+      );
+
+      await tester.tap(find.byKey(_key('wb-ctx-flow-lib-check-circuit')));
+      await tester.pump();
+      expect(find.byKey(_key('wb-ctx-flow-lib-toggle-circuit')), findsNothing);
+      expect(store.read()!.enabledLibraries, isNot(contains('circuit')));
+
+      await tester.tap(find.byKey(_key('wb-ctx-flow-lib-check-circuit')));
+      await tester.pump();
+      expect(
+        find.byKey(_key('wb-ctx-flow-lib-toggle-circuit')),
+        findsOneWidget,
+      );
+      expect(store.read()!.enabledLibraries, contains('circuit'));
+
+      await tester.tap(find.byKey(_key('wb-ctx-flow-more-shapes-close')));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 200));
+      expect(find.byKey(_key('wb-ctx-flow-more-shapes-dialog')), findsNothing);
+    });
+
+    testWidgets('我的组件：点击添加生成组件节点、悬停删除并持久化', (
+      WidgetTester tester,
+    ) async {
+      final WbFlowMemoryLibraryStore store = WbFlowMemoryLibraryStore(
+        const WbFlowLibraryPrefs(
+          enabledLibraries: <String>{'custom'},
+          components: <WbFlowComponent>[component],
+        ),
+      );
+      final List<WbFlowchartModel> models = <WbFlowchartModel>[];
+      await _pumpEditor(
+        tester,
+        WbFlowchartEditor(libraryStore: store, onChanged: models.add),
+      );
+      await tester.pump();
+
+      final Finder item = find.byKey(_key('wb-ctx-flow-component-cmp-1'));
+      expect(item, findsOneWidget);
+      await tester.ensureVisible(item);
+      await tester.pump();
+      await tester.tap(item);
+      await tester.pump();
+
+      final WbFlowNode added = models.last.nodes.last;
+      expect(added.type, WbFlowNodeType.customComponent);
+      expect(added.component, isNotNull);
+      expect(added.component!.id, 'cmp-1');
+
+      // 悬停显示删除按钮 → 删除条目（已放置节点不受影响）。
+      final TestGesture mouse = await tester.createGesture(
+        kind: PointerDeviceKind.mouse,
+      );
+      await mouse.addPointer(location: Offset.zero);
+      addTearDown(mouse.removePointer);
+      await tester.pump();
+      await mouse.moveTo(tester.getCenter(item));
+      await tester.pump();
+
+      final Finder remove = find.byKey(
+        _key('wb-ctx-flow-component-remove-cmp-1'),
+      );
+      expect(remove, findsOneWidget);
+      await tester.tap(remove);
+      await tester.pump();
+
+      expect(find.byKey(_key('wb-ctx-flow-component-cmp-1')), findsNothing);
+      expect(store.read()!.components, isEmpty);
+      expect(
+        models.last.nodes.any(
+          (WbFlowNode n) => n.type == WbFlowNodeType.customComponent,
+        ),
+        isTrue,
+        reason: '已放置的组件节点保留',
+      );
+    });
+
+    testWidgets('类图三段编辑：类名 / 属性 / 方法写回 compartments', (
+      WidgetTester tester,
+    ) async {
+      final List<WbFlowchartModel> models = <WbFlowchartModel>[];
+      await _pumpEditor(
+        tester,
+        WbFlowchartEditor(
+          initialModel: const WbFlowchartModel(
+            nodes: <WbFlowNode>[
+              WbFlowNode(
+                id: 'cls',
+                x: 40,
+                y: 40,
+                type: WbFlowNodeType.umlClass,
+                text: 'Order',
+                width: 160,
+                height: 120,
+              ),
+            ],
+          ),
+          onChanged: models.add,
+        ),
+      );
+      await tester.pump();
+
+      await tester.tap(find.byKey(_key('wb-ctx-flow-node-cls')));
+      await tester.pump();
+      expect(find.byKey(_key('wb-ctx-flow-node-name')), findsOneWidget);
+      expect(find.byKey(_key('wb-ctx-flow-node-attrs')), findsOneWidget);
+      expect(find.byKey(_key('wb-ctx-flow-node-methods')), findsOneWidget);
+      expect(
+        find.byKey(_key('wb-ctx-flow-node-text')),
+        findsNothing,
+        reason: '三段式类型不再使用单行文本框',
+      );
+
+      await tester.enterText(
+        find.byKey(_key('wb-ctx-flow-node-attrs')),
+        '+ id: int',
+      );
+      await tester.pump();
+      await tester.enterText(
+        find.byKey(_key('wb-ctx-flow-node-methods')),
+        '+ pay(): void',
+      );
+      await tester.pump();
+
+      final WbFlowNode updated = models.last.nodeById('cls')!;
+      expect(updated.compartments.length, 3);
+      expect(updated.compartments[0], 'Order', reason: '类名段回退 text');
+      expect(updated.compartments[1], '+ id: int');
+      expect(updated.compartments[2], '+ pay(): void');
+    });
+
+    testWidgets('custom 组件节点：无文本编辑，显示组件名提示', (
+      WidgetTester tester,
+    ) async {
+      await _pumpEditor(
+        tester,
+        const WbFlowchartEditor(
+          initialModel: WbFlowchartModel(
+            nodes: <WbFlowNode>[
+              WbFlowNode(
+                id: 'cmp-node',
+                x: 40,
+                y: 40,
+                type: WbFlowNodeType.customComponent,
+                width: 120,
+                height: 120,
+                component: component,
+              ),
+            ],
+          ),
+        ),
+      );
+      await tester.pump();
+
+      await tester.tap(find.byKey(_key('wb-ctx-flow-node-cmp-node')));
+      await tester.pump();
+
+      expect(find.byKey(_key('wb-ctx-flow-node-component')), findsOneWidget);
+      expect(find.text('组件：星形'), findsOneWidget);
+      expect(find.byKey(_key('wb-ctx-flow-node-text')), findsNothing);
+      expect(find.byKey(_key('wb-ctx-flow-node-name')), findsNothing);
     });
   });
 

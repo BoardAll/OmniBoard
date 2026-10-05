@@ -19,6 +19,8 @@ dependencies:
   whiteboard_core:
     path: ../core_dart
   provider: ^6.1.0
+  # SVG 解码 / 光栅化（「我的组件」导入，渲染统一为 ui.Image）。
+  flutter_svg: ^2.1.0
 
 dev_dependencies:
   flutter_test:

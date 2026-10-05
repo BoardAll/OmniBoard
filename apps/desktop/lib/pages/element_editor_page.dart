@@ -7,12 +7,19 @@
 /// [WbQuickCreateKind.buildEditor]。
 library;
 
+import 'dart:io';
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:provider/provider.dart';
 import 'package:whiteboard_icons/icons.dart';
 import 'package:whiteboard_theme/theme.dart';
+import 'package:whiteboard_windows/whiteboard_windows.dart';
 
+import '../services/settings_store.dart';
 import '../widgets/context_editors/context_editor_shell.dart';
+import '../widgets/context_editors/flowchart_editor.dart';
 import '../widgets/context_editors/quick_create.dart';
 
 /// 元素编辑请求（路由 `extra`；新建时 [elementId] 为 null）。
@@ -73,6 +80,40 @@ class _ElementEditorPageState extends State<ElementEditorPage> {
     context.pop(model);
   }
 
+  /// 构建编辑器：流程图经 [WbDesktopFlowLibraryStore] 持久化图形库偏好，
+  /// 并接入 Windows 原生对话框作为「我的组件」导入源（其余类型忽略）。
+  Widget _buildEditor(BuildContext context, WbQuickCreateKind kind) {
+    final WbSettingsStore? settings = context.read<WbSettingsStore?>();
+    return kind.buildEditor(
+      initialModel: widget.request.initialModel,
+      onClose: _cancel,
+      onChanged: (Object model) => _latest = model,
+      libraryStore:
+          settings == null ? null : WbDesktopFlowLibraryStore(settings),
+      componentImporter: _importComponent,
+    );
+  }
+
+  /// 组件导入源：Windows 原生「选择组件」对话框（SVG / 图片）。
+  ///
+  /// 返回文件名 + 字节；用户取消 / 原生未注册（测试环境）/ 读文件
+  /// 失败返回 null。归一化（判型 / 限量 / 重编码）由编辑器统一处理。
+  Future<WbFlowComponentAsset?> _importComponent() async {
+    final String? path = await WindowsWindowPlugin().openComponentFile();
+    if (path == null || path.isEmpty) {
+      return null;
+    }
+    try {
+      final Uint8List bytes = await File(path).readAsBytes();
+      return WbFlowComponentAsset(name: _baseName(path), bytes: bytes);
+    } on FileSystemException {
+      return null;
+    }
+  }
+
+  /// 路径末段（无 path 依赖的手写 basename；兼容两种分隔符）。
+  static String _baseName(String path) => path.split(RegExp(r'[/\\]')).last;
+
   @override
   Widget build(BuildContext context) {
     final WbThemeColors colors = context.wbColors;
@@ -105,23 +146,30 @@ class _ElementEditorPageState extends State<ElementEditorPage> {
       // 其余专业编辑器保持居中面板卡片。
       body: kind.isWorkspace
           ? SizedBox.expand(
-              child: kind.buildEditor(
-                initialModel: widget.request.initialModel,
-                onClose: _cancel,
-                onChanged: (Object model) => _latest = model,
-              ),
+              child: _buildEditor(context, kind),
             )
           : Center(
               child: SizedBox(
                 width: WbContextMetrics.defaultWidth,
                 height: 620,
-                child: kind.buildEditor(
-                  initialModel: widget.request.initialModel,
-                  onClose: _cancel,
-                  onChanged: (Object model) => _latest = model,
-                ),
+                child: _buildEditor(context, kind),
               ),
             ),
     );
   }
+}
+
+/// 桌面图形库偏好存储：桥接 [WbSettingsStore]（settings.json `flowLibrary` 键）。
+class WbDesktopFlowLibraryStore implements WbFlowLibraryStore {
+  /// 创建适配器。
+  const WbDesktopFlowLibraryStore(this.settings);
+
+  /// 设置存储（Provider 下发；未挂载 Provider 时不注入本适配器）。
+  final WbSettingsStore settings;
+
+  @override
+  WbFlowLibraryPrefs? read() => settings.flowLibrary;
+
+  @override
+  void write(WbFlowLibraryPrefs prefs) => settings.flowLibrary = prefs;
 }

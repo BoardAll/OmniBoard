@@ -4,4 +4,5 @@
 /// 继续解析到共享实现，零改动。
 library;
 
+export 'package:whiteboard_canvas/context_editors/flow_components.dart';
 export 'package:whiteboard_canvas/context_editors/flowchart_editor.dart';

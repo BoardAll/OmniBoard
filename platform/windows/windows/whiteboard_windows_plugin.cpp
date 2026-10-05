@@ -447,6 +447,22 @@ void WhiteboardWindowsPlugin::HandleMethodCall(
     return;
   }
 
+  if (method == "dialog.openComponent") {
+    std::string path;
+    std::string error;
+    const FileDialogOutcome outcome =
+        window_plugin_.OpenComponentDialog(&path, &error);
+    if (outcome == FileDialogOutcome::kSelected) {
+      result->Success(flutter::EncodableValue(path));
+    } else if (outcome == FileDialogOutcome::kCancelled) {
+      // 契约：用户取消返回 null。
+      result->Success(flutter::EncodableValue());
+    } else {
+      result->Error("dialog-failed", error);
+    }
+    return;
+  }
+
   if (method == "dialog.openBoard") {
     std::string path;
     std::string error;

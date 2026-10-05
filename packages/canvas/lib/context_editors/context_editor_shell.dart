@@ -115,6 +115,13 @@ abstract final class WbContextMetrics {
   /// 流程图预览世界尺寸（无约束时的回退布局画布）。
   static const Size flowFallbackCanvas = Size(420, 320);
 
+  /// 流程图泳道条带宽 / 高（纵泳道列宽 / 横泳道行高，§8.3）。
+  static const double flowLaneWidth = 220;
+  static const double flowLaneHeight = 220;
+
+  /// 流程图虚拟世界平面半径（无限画布 ±5000 世界单位）。
+  static const double flowWorldExtent = 5000;
+
   /// 思维导图节点尺寸。
   static const double mindNodeWidth = 132;
   static const double mindNodeHeight = 34;

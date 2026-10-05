@@ -27,6 +27,7 @@ import 'package:whiteboard_ui_kit/ui_kit.dart';
 
 import '../canvas/canvas_model.dart';
 import '../context_editors/context_editor_shell.dart';
+import '../context_editors/flow_components.dart';
 import '../context_editors/flowchart_editor.dart';
 import '../context_editors/function_editor.dart';
 import '../context_editors/mindmap_editor.dart';
@@ -352,6 +353,17 @@ abstract final class WbBoardFileCodec {
   static bool _bool(Object? value, bool fallback) =>
       value is bool ? value : fallback;
 
+  /// 字符串列表读取（非列表 / 非字符串项过滤；缺失返回空列表）。
+  static List<String> _stringList(Object? value) {
+    if (value is! List) {
+      return const <String>[];
+    }
+    return <String>[
+      for (final Object? item in value)
+        if (item is String) item,
+    ];
+  }
+
   static Map<String, dynamic> _map(Object? value) =>
       value is Map ? Map<String, dynamic>.from(value) : <String, dynamic>{};
 
@@ -401,6 +413,11 @@ abstract final class WbBoardFileCodec {
             'width': node.width,
             'height': node.height,
             'laneId': node.laneId,
+            // UML 类三段文本：空列表省略（旧 .wbd 兼容）。
+            if (node.compartments.isNotEmpty)
+              'compartments': node.compartments,
+            // 组件节点内嵌数据：无组件省略（旧 .wbd 兼容）。
+            if (node.component != null) 'component': node.component!.toJson(),
           },
       ],
       'connectors': <Map<String, dynamic>>[
@@ -410,6 +427,8 @@ abstract final class WbBoardFileCodec {
             'fromId': c.fromId,
             'toId': c.toId,
             'label': c.label,
+            // 箭头样式：默认实心箭头省略（旧 .wbd 兼容）。
+            if (c.arrow != WbFlowArrowStyle.arrow) 'arrow': c.arrow.id,
           },
       ],
       'lanes': <Map<String, dynamic>>[
@@ -450,6 +469,9 @@ abstract final class WbBoardFileCodec {
           width: _double(node['width'], 120),
           height: _double(node['height'], 52),
           laneId: node['laneId'] is String ? node['laneId'] as String : null,
+          compartments: _stringList(node['compartments']),
+          // 容错：非 Map / 缺 id / mime / data → null（按占位框渲染）。
+          component: WbFlowComponent.fromJson(node['component']),
         ));
       }
     }
@@ -471,6 +493,12 @@ abstract final class WbBoardFileCodec {
           fromId: _string(c['fromId'], ''),
           toId: _string(c['toId'], ''),
           label: _string(c['label'], ''),
+          arrow: _enumById(
+            WbFlowArrowStyle.values,
+            (WbFlowArrowStyle value) => value.id,
+            c['arrow'],
+            WbFlowArrowStyle.arrow,
+          ),
         ));
       }
     }

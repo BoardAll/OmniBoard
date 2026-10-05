@@ -40,6 +40,13 @@ abstract class WbWindowPlugin {
   /// Windows 覆写为原生模态对话框（`dialog.openImage`）。
   Future<String?> openImageFile() async => null;
 
+  /// 打开系统「选择组件」文件对话框（SVG / 图片）。
+  ///
+  /// 返回选中文件的绝对路径；用户取消、平台未实现或原生未注册
+  /// （测试环境）返回 null。默认实现返回 null，Windows 覆写为原生
+  /// 模态对话框（`dialog.openComponent`）。
+  Future<String?> openComponentFile() async => null;
+
   /// 打开系统「打开白板」文件对话框（`.wbd`）。
   ///
   /// 返回选中文件的绝对路径；用户取消、平台未实现或原生未注册
@@ -116,6 +123,20 @@ class WindowsWindowPlugin implements WbWindowPlugin {
   Future<String?> openImageFile() async {
     try {
       return await _channel.invokeMethod<String>('dialog.openImage');
+    } on MissingPluginException {
+      return null;
+    }
+  }
+
+  /// 打开系统「选择组件」文件对话框（原生 `GetOpenFileNameW`，
+  /// 过滤 SVG / 图片）。
+  ///
+  /// 返回选中文件绝对路径；用户取消（原生返回 null）或原生未注册
+  /// （MissingPluginException，测试环境）返回 null。
+  @override
+  Future<String?> openComponentFile() async {
+    try {
+      return await _channel.invokeMethod<String>('dialog.openComponent');
     } on MissingPluginException {
       return null;
     }

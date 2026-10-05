@@ -18,6 +18,7 @@ import 'package:flutter/rendering.dart';
 import 'package:whiteboard_theme/theme.dart';
 import 'package:whiteboard_ui_kit/ui_kit.dart';
 
+import '../context_editors/flow_components.dart';
 import '../context_editors/render3d_editor.dart';
 import 'background_painter.dart';
 import 'canvas_image_cache.dart';
@@ -38,7 +39,12 @@ class WbCanvasPainter extends CustomPainter {
     this.pageBackground,
   }) : super(
           repaint: Listenable.merge(
-            <Listenable>[controller, controller.imageCache],
+            <Listenable>[
+              controller,
+              controller.imageCache,
+              // 组件图片（「我的组件」）解码完成自动重绘主画布。
+              WbFlowComponentCache.instance,
+            ],
           ),
         );
 

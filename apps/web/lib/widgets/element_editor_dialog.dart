@@ -7,15 +7,25 @@
 ///   编辑 · 类型）/ 保存（key `wb-element-editor-save`）；
 /// - 流程图 / 表格 / 思维导图为全窗工作区布局，其余为居中面板
 ///   （宽 [WbContextMetrics.defaultWidth] / 高 620，对齐桌面视觉）；
+/// - 流程图编辑器注入 localStorage 图形库偏好存储
+///   （[WbWebFlowLibraryStore]）与「我的组件」二进制导入
+///   （`wb_browser_io.dart` 的 `wbPickBinaryFile`）；
 /// - 保存返回 `_latest ?? initialModel ?? kind.defaultModel()`；取消返回
 ///   null（宿主不写回）；`barrierDismissible: false`（仅按钮出口）。
 library;
 
+import 'dart:convert';
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:whiteboard_canvas/context_editors/context_editor_shell.dart';
+import 'package:whiteboard_canvas/context_editors/flow_components.dart';
+import 'package:whiteboard_canvas/context_editors/flowchart_editor.dart';
 import 'package:whiteboard_canvas/context_editors/quick_create.dart';
 import 'package:whiteboard_icons/icons.dart';
 import 'package:whiteboard_theme/theme.dart';
+
+import '../services/wb_browser_io.dart';
 
 /// 打开专业元素编辑器对话框。
 ///
@@ -63,6 +73,9 @@ class _WbElementEditorDialogState extends State<_WbElementEditorDialog> {
   /// 编辑器上报的最新模型（未做修改时为 null → 保存用初始 / 默认模型）。
   Object? _latest;
 
+  /// 图形库偏好存储（localStorage 适配器；非 Web 环境为内存实现）。
+  late final WbWebFlowLibraryStore _libraryStore = WbWebFlowLibraryStore();
+
   /// 是否为编辑既有元素（否则为新建）。
   bool get _isEditing =>
       widget.elementId != null && widget.elementId!.isNotEmpty;
@@ -77,6 +90,16 @@ class _WbElementEditorDialogState extends State<_WbElementEditorDialog> {
     Navigator.of(context).pop(
       _latest ?? widget.initialModel ?? widget.kind.defaultModel(),
     );
+  }
+
+  /// 「我的组件」导入：浏览器文件选择（用户取消返回 null）。
+  Future<WbFlowComponentAsset?> _importComponent() async {
+    final ({String name, Uint8List bytes})? picked =
+        await wbPickBinaryFile();
+    if (picked == null) {
+      return null;
+    }
+    return WbFlowComponentAsset(name: picked.name, bytes: picked.bytes);
   }
 
   @override
@@ -114,6 +137,8 @@ class _WbElementEditorDialogState extends State<_WbElementEditorDialog> {
                   initialModel: widget.initialModel,
                   onClose: _cancel,
                   onChanged: (Object model) => _latest = model,
+                  libraryStore: _libraryStore,
+                  componentImporter: _importComponent,
                 ),
               )
             : Center(
@@ -124,10 +149,56 @@ class _WbElementEditorDialogState extends State<_WbElementEditorDialog> {
                     initialModel: widget.initialModel,
                     onClose: _cancel,
                     onChanged: (Object model) => _latest = model,
+                    libraryStore: _libraryStore,
+                    componentImporter: _importComponent,
                   ),
                 ),
               ),
       ),
     );
+  }
+}
+
+/// Web 图形库偏好存储（localStorage 适配器）。
+///
+/// 与桌面 settings.json 适配器对应：经 [createWbCanvasStorage]（Web 编译
+/// = localStorage / 桩编译 = 内存）持久化图形库勾选 / 折叠与我的组件。
+class WbWebFlowLibraryStore implements WbFlowLibraryStore {
+  /// 创建适配器（可注入存储，缺省共享单例）。
+  WbWebFlowLibraryStore([WbCanvasStorage? storage])
+      : _storage = storage ?? createWbCanvasStorage();
+
+  /// 存档键（与画布存档键隔离）。
+  static const String storageKey = 'wb-flow-library';
+
+  final WbCanvasStorage _storage;
+
+  @override
+  WbFlowLibraryPrefs? read() {
+    final String? raw = _storage.read(storageKey);
+    if (raw == null || raw.isEmpty) {
+      return null;
+    }
+    try {
+      final Object? decoded = jsonDecode(raw);
+      if (decoded is! Map) {
+        return null;
+      }
+      return WbFlowLibraryPrefs.fromJson(
+        decoded,
+        defaultEnabled: <String>{
+          for (final WbFlowShapeLibrary library in WbFlowShapeLibrary.values)
+            library.id,
+        },
+      );
+    } catch (_) {
+      // 坏存档：视为无偏好（编辑器回落默认全选）。
+      return null;
+    }
+  }
+
+  @override
+  void write(WbFlowLibraryPrefs prefs) {
+    _storage.write(storageKey, jsonEncode(prefs.toJson()));
   }
 }

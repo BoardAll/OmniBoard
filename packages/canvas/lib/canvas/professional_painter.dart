@@ -202,7 +202,8 @@ abstract final class WbProfessionalRenderer {
   ) {
     WbFlowConnectorPainter(
       model: model,
-      selectedNodeId: null,
+      sceneOrigin: Offset.zero,
+      selectedNodeIds: const <String>{},
       colors: colors,
     ).paint(canvas, layoutCanvas);
 
@@ -213,31 +214,152 @@ abstract final class WbProfessionalRenderer {
         type: node.type,
         selected: false,
         primary: colors.primary,
+        component: node.component,
       ).paint(canvas, Size(node.width, node.height));
 
-      final String text = node.text;
-      if (text.isNotEmpty) {
-        final TextPainter painter = textCache.layout(
-          key: '$elementId|pro-flow|${node.id}|$text',
-          text: text,
-          style: TextStyle(
-            fontSize: 12,
-            color: colors.icon,
-            height: 1.25,
-          ),
-          maxWidth: math.max(node.width - 20, 1),
-          align: TextAlign.center,
-          maxLines: 2,
-        );
-        painter.paint(
-          canvas,
-          Offset(
-            (node.width - painter.width) / 2,
-            (node.height - painter.height) / 2,
-          ),
-        );
+      if (WbFlowUmlClassLayout.isThreeSegment(node.type) ||
+          node.type == WbFlowNodeType.umlSimpleInterface) {
+        // UML 类系三段文本 / 简单接口构造型（共享助手口径，与编辑器一致）。
+        _paintUmlClassText(canvas, elementId, node, textCache);
+      } else {
+        final String text = node.displayText;
+        if (text.isNotEmpty) {
+          final TextPainter painter = textCache.layout(
+            key: '$elementId|pro-flow|${node.id}|$text',
+            text: text,
+            style: TextStyle(
+              fontSize: 12,
+              color: colors.icon,
+              height: 1.25,
+            ),
+            maxWidth: math.max(node.width - 20, 1),
+            align: TextAlign.center,
+            maxLines: 2,
+          );
+          painter.paint(
+            canvas,
+            Offset(
+              (node.width - painter.width) / 2,
+              (node.height - painter.height) / 2,
+            ),
+          );
+        }
       }
       canvas.restore();
+    }
+  }
+
+  /// UML 类系文本：三段式（类 / 接口 / 多例类）按 [WbFlowUmlClassLayout]
+  /// 名带 + 分隔线绘制构造型 / 类名（居中）与属性 / 方法（左对齐）；
+  /// 简单接口绘制构造型 + 名称（整体居中）。
+  static void _paintUmlClassText(
+    Canvas canvas,
+    String elementId,
+    WbFlowNode node,
+    WbCanvasTextCache textCache,
+  ) {
+    final WbFlowNodeType type = node.type;
+    final String stereotype = WbFlowUmlClassLayout.stereotypeOf(type);
+    final double maxWidth = math.max(node.width - 16, 1);
+
+    if (!WbFlowUmlClassLayout.isThreeSegment(type)) {
+      // 简单接口：构造型（«interface»）+ 名称整体居中。
+      final TextPainter stereo = textCache.layout(
+        key: '$elementId|pro-flow|${node.id}|st',
+        text: stereotype,
+        style: TextStyle(
+          fontSize: 10,
+          color: colors.icon.withValues(alpha: 0.65),
+          height: 1.2,
+        ),
+        maxWidth: maxWidth,
+        align: TextAlign.center,
+        maxLines: 1,
+      );
+      final TextPainter name = textCache.layout(
+        key: '$elementId|pro-flow|${node.id}|name',
+        text: node.displayText,
+        style: TextStyle(
+          fontSize: 12,
+          color: colors.icon,
+          height: 1.2,
+          fontWeight: FontWeight.w600,
+        ),
+        maxWidth: maxWidth,
+        align: TextAlign.center,
+        maxLines: 1,
+      );
+      final double top = (node.height - stereo.height - name.height) / 2;
+      stereo.paint(canvas, Offset((node.width - stereo.width) / 2, top));
+      name.paint(
+        canvas,
+        Offset((node.width - name.width) / 2, top + stereo.height),
+      );
+      return;
+    }
+
+    final List<String> parts = <String>[
+      node.compartments.isNotEmpty ? node.compartments[0] : node.text,
+      node.compartments.length > 1 ? node.compartments[1] : '',
+      node.compartments.length > 2 ? node.compartments[2] : '',
+    ];
+    final List<double> dividers = WbFlowUmlClassLayout.dividers(type, node.height);
+
+    // 名带（0 ~ dividers[0]）：构造型行 + 类名整体居中。
+    final TextPainter? stereo = stereotype.isEmpty
+        ? null
+        : textCache.layout(
+            key: '$elementId|pro-flow|${node.id}|st',
+            text: stereotype,
+            style: TextStyle(
+              fontSize: 10,
+              color: colors.icon.withValues(alpha: 0.65),
+              height: 1.2,
+            ),
+            maxWidth: maxWidth,
+            align: TextAlign.center,
+            maxLines: 1,
+          );
+    final TextPainter name = textCache.layout(
+      key: '$elementId|pro-flow|${node.id}|name',
+      text: parts[0],
+      style: TextStyle(
+        fontSize: 12,
+        color: colors.icon,
+        height: 1.2,
+        fontWeight: FontWeight.w600,
+      ),
+      maxWidth: maxWidth,
+      align: TextAlign.center,
+      maxLines: 1,
+    );
+    final double block = name.height + (stereo?.height ?? 0);
+    double top = (dividers[0] - block) / 2;
+    if (stereo != null) {
+      stereo.paint(canvas, Offset((node.width - stereo.width) / 2, top));
+      top += stereo.height;
+    }
+    name.paint(canvas, Offset((node.width - name.width) / 2, top));
+
+    // 属性 / 方法：左对齐在下半两段（与编辑器 padding 6 / 3 一致）。
+    for (int i = 1; i < 3; i++) {
+      final String text = parts[i];
+      if (text.isEmpty) {
+        continue;
+      }
+      final TextPainter detail = textCache.layout(
+        key: '$elementId|pro-flow|${node.id}|$i|$text',
+        text: text,
+        style: TextStyle(
+          fontSize: 10,
+          color: colors.icon,
+          height: 1.2,
+        ),
+        maxWidth: math.max(node.width - 12, 1),
+        align: TextAlign.left,
+        maxLines: 2,
+      );
+      detail.paint(canvas, Offset(6, dividers[i - 1] + 3));
     }
   }
 

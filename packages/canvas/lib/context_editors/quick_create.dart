@@ -17,6 +17,7 @@ import 'package:whiteboard_theme/theme.dart';
 import 'package:whiteboard_ui_kit/ui_kit.dart';
 
 import 'context_editor_shell.dart';
+import 'flow_components.dart';
 import 'flowchart_editor.dart';
 import 'function_editor.dart';
 import 'mindmap_editor.dart';
@@ -73,11 +74,14 @@ enum WbQuickCreateKind {
   /// [initialModel] 为编辑既有元素时的初始模型（类型匹配才注入，否则
   /// 编辑器回落默认示例）；[onChanged] 透传编辑器的最新模型（泛化为
   /// [Object]，供宿主捕获后插入 / 回写画布；类型在各类编辑器内保证）；
-  /// [onClose] 透传；默认面板宽度。
+  /// [onClose] 透传；[libraryStore] / [componentImporter] 仅流程图编辑器
+  /// 使用（图形库偏好持久化 / 「我的组件」导入源，其余类型忽略）。
   Widget buildEditor({
     Object? initialModel,
     VoidCallback? onClose,
     ValueChanged<Object>? onChanged,
+    WbFlowLibraryStore? libraryStore,
+    Future<WbFlowComponentAsset?> Function()? componentImporter,
   }) {
     switch (this) {
       case WbQuickCreateKind.flowchart:
@@ -86,6 +90,8 @@ enum WbQuickCreateKind {
               initialModel is WbFlowchartModel ? initialModel : null,
           onClose: onClose,
           onChanged: (WbFlowchartModel model) => onChanged?.call(model),
+          libraryStore: libraryStore,
+          componentImporter: componentImporter,
         );
       case WbQuickCreateKind.table:
         return WbTableEditor(

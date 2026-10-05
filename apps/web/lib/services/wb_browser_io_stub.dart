@@ -5,6 +5,8 @@
 /// 恒返回 null，均不抛异常。
 library;
 
+import 'dart:typed_data';
+
 import 'wb_canvas_storage.dart';
 
 /// 进程内内存存储（桩）。
@@ -39,5 +41,11 @@ Future<void> wbDownloadTextFile(String fileName, String contents) async {}
 /// 桩：非 Web 环境无文件选择（恒返回 null）。
 Future<String?> wbPickTextFile({
   String accept = '.wbd,application/json',
+}) async =>
+    null;
+
+/// 桩：非 Web 环境无二进制文件选择（恒返回 null）。
+Future<({String name, Uint8List bytes})?> wbPickBinaryFile({
+  String accept = '.svg,image/*',
 }) async =>
     null;

@@ -6,6 +6,7 @@ library;
 
 import 'dart:async';
 import 'dart:js_interop';
+import 'dart:typed_data';
 
 import 'package:web/web.dart' as web;
 
@@ -94,6 +95,52 @@ Future<String?> wbPickTextFile({
       return;
     }
     file.text().toDart.then((JSString text) => completeOnce(text.toDart));
+  }.toJS;
+  input.oncancel = (web.Event _) {
+    completeOnce(null);
+  }.toJS;
+
+  input.click();
+  return completer.future;
+}
+
+/// 弹出文件选择框并读取所选二进制文件（用户取消返回 null）。
+///
+/// 与 [wbPickTextFile] 同模式（同时监听 `change` / `cancel`），
+/// 供「我的组件」导入 SVG / 图片使用。
+Future<({String name, Uint8List bytes})?> wbPickBinaryFile({
+  String accept = '.svg,image/*',
+}) {
+  final web.HTMLInputElement input =
+      web.document.createElement('input') as web.HTMLInputElement;
+  input
+    ..type = 'file'
+    ..accept = accept;
+  final Completer<({String name, Uint8List bytes})?> completer =
+      Completer<({String name, Uint8List bytes})?>();
+
+  void completeOnce(({String name, Uint8List bytes})? value) {
+    if (!completer.isCompleted) {
+      completer.complete(value);
+    }
+  }
+
+  input.onchange = (web.Event _) {
+    final web.FileList? files = input.files;
+    final web.File? file = (files == null || files.length == 0)
+        ? null
+        : files.item(0);
+    if (file == null) {
+      completeOnce(null);
+      return;
+    }
+    final String name = file.name;
+    file.arrayBuffer().toDart.then((JSArrayBuffer buffer) {
+      completeOnce((
+        name: name,
+        bytes: buffer.toDart.asUint8List(),
+      ));
+    });
   }.toJS;
   input.oncancel = (web.Event _) {
     completeOnce(null);
