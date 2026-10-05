@@ -1,8 +1,8 @@
 /// 演示画布：WASM 核心不可用时（或就绪前的）内置降级视图。
 ///
 /// 纯 Flutter 绘制（网格背景 + 示例元素），不依赖 C++ 核心，
-/// 保证 Web 端在 Wave 4 WASM 产物就位前也可完整演示列表 → 编辑流程
-/// （《Web 端方案设计（Flutter Web + WASM）》§9.4 降级策略）。
+/// 保证 Web 端在 WASM 产物缺失 / 加载失败时也可完整演示列表 → 编辑
+/// 流程（《Web 端方案设计（Flutter Web + WASM）》§9.4 降级策略）。
 library;
 
 import 'package:flutter/material.dart';

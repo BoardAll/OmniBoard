@@ -1,191 +1,78 @@
 /**
- * 房间与 `/board` namespace 装配（M1 完整版 / T1.3）。
+ * 房间与 `/board` namespace 装配（M1 完整版 / T1.3 + M2 体验完善 + M3 互动模式 / T3.1–T3.5）。
  *
  * 职责：
- * - 房间态（§5.1 / §7）：参与者表（userId/socketId/role/joinedAt）、op 环形日志、版本水位、空房自动清理（§5.14）；
- * - 事件（§6 M1 契约）：board:join / board:joinAck / board:ops / board:fetchOps / board:leave / board:ping
- *   → board:joined / board:ops / board:participants / room:error；
- * - 广播：`board:<boardId>` 房间（`socket.to`，排除发送者）；单播：`socket.emit`（socket.id 定向）
- *   与 `user:<userId>` 房间（跨会话定向，M0 POC 兼容层使用）；
- * - 审计：认证结果、房间生命周期、权限拒绝（经注入的 AuditSink 落盘 / stderr）。
+ * - 装配 namespace：连接认证（token role → socket.data.tokenRole / role）+ M1/M2/M3 事件注册；
+ * - 房间态见 roomStore.ts（参与者 / op 日志 / 水位 / 软锁 / 模式 / checkpoint / host 转移 / 空房清理）；
+ * - 事件（§6）：M1 board:join / board:joinAck / board:ops / board:fetchOps / board:leave / board:ping；
+ *   M2 presence:preview（泛化中间态转发）与 lock:acquire / lock:release / lock:renew（软锁）；
+ *   M3 interactive:* 见 interactive.ts、board:checkpoint 见 checkpoint.ts（本文件负责注册与 op 触发钩子）；
+ * - 广播：`board:<boardId>` 房间（`socket.to`，排除发送者；服务端主动事件用 `namespace.to`）；
+ *   单播：`socket.emit`（socket.id 定向）与 `user:<userId>` 房间（跨会话定向）；
+ * - 审计：认证结果、房间生命周期、权限拒绝、锁生命周期；M3 管理操作 / checkpoint / ops 采样
+ *   （经注入的 AuditSink 落盘 / stderr）。
  *
- * 边界（不做，留 M2/M3）：presence:* / lock:* / interactive:*；CRDT 合并（唯一权威在客户端引擎）；
- * Redis adapter；checkpoint；二进制载荷。
+ * M3 关键接线：
+ * - 契约 A：board:ops 与 lock:acquire 的写权校验切换为 `effectiveCanWrite(role, grantedWrite, mode)`
+ *   （free 默认 ≥Write 可写 / present 收窄；事实来源为房间参与者表，而非 socket.data.role）；
+ * - 契约 D/E：join 时 token role 冲突降级（已有在线 Host → 降 CoHost + 审计）；
+ *   房主自举：房间无在线 Host 时首个加入的可写角色自动成为 Host（免 token 的房主体验）；
+ *   Host 离场启动转移窗口（roomStore，默认立即），到期移交见 interactive.ts；
+ * - 契约 F：op 批入账后 → ops 采样审计（每 32 条 1 条）+ checkpoint 阈值触发；
+ *   join 未携带（或空）lastSeenVersion 且存在 checkpoint → board:joined.snapshot 下发。
+ *
+ * 边界（不做，留后续）：presence:cursor / selection / page / viewport、分组 / 投票 / 计时；
+ * CRDT 合并（唯一权威在客户端引擎）；Redis adapter；二进制载荷。
  */
 
-import type { Namespace, Server, Socket } from 'socket.io';
 import { buildAuditEntry, type AuditSink } from './audit.js';
-import { DEFAULT_OPLOG_CAPACITY, OpLog, parseOp } from './oplog.js';
+import { maybeRequestCheckpoint, registerCheckpointHandlers } from './checkpoint.js';
+import { installHostTransferHandler, registerInteractiveHandlers } from './interactive.js';
+import { parseOp } from './oplog.js';
+import { boardRoom, userRoom, OPS_AUDIT_SAMPLE_INTERVAL, type BoardRoomStore } from './roomStore.js';
 import { resolveConnectionIdentity } from './token.js';
 import {
+  clampSessionRole,
+  effectiveCanWrite,
   roleCanWrite,
   type BoardAckFailure,
-  type BoardDirectAck,
-  type BoardDirectPayload,
-  type BoardDirectedPayload,
-  type BoardEchoAck,
-  type BoardEchoPayload,
   type BoardErrorPayload,
-  type BoardFetchOpsPayload,
-  type BoardFetchOpsResponse,
-  type BoardJoinAck,
-  type BoardJoinAckPayload,
-  type BoardJoinAckResponse,
-  type BoardJoinPayload,
   type BoardJoinedPayload,
-  type BoardLeaveAck,
-  type BoardLeavePayload,
-  type BoardOpsAck,
-  type BoardParticipantsPayload,
-  type BoardPingAck,
-  type BoardPingPayload,
-  type BoardSocketData,
+  type BoardNamespace,
+  type BoardRole,
+  type BoardServer,
+  type BoardSocket,
   type BoardStateVector,
-  type ClientToServerEvents,
-  type InterServerEvents,
   type Op,
   type ParticipantInfo,
-  type ServerToClientEvents,
+  type PresencePreviewOutPayload,
 } from './types.js';
+import { readNonEmptyString, readSeqVector } from './util.js';
 
-export type BoardServer = Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, BoardSocketData>;
-export type BoardNamespace = Namespace<ClientToServerEvents, ServerToClientEvents, InterServerEvents, BoardSocketData>;
-export type BoardSocket = Socket<ClientToServerEvents, ServerToClientEvents, InterServerEvents, BoardSocketData>;
+export type { BoardServer, BoardNamespace, BoardSocket } from './types.js';
+export {
+  BoardRoomStore,
+  boardRoom,
+  userRoom,
+  DEFAULT_ROOM_TTL_MS,
+  DEFAULT_LOCK_TTL_MS,
+  DEFAULT_LOCK_SWEEP_INTERVAL_MS,
+  DEFAULT_HOST_TRANSFER_MS,
+  DEFAULT_CHECKPOINT_OP_THRESHOLD,
+  DEFAULT_CHECKPOINT_TIMEOUT_MS,
+  DEFAULT_CHECKPOINT_MAX_PAYLOAD_BYTES,
+  OPS_AUDIT_SAMPLE_INTERVAL,
+} from './roomStore.js';
+export type {
+  RoomDestroyInfo,
+  LockRecord,
+  AcquireLockOutcome,
+  ReleaseLockOutcome,
+  RenewLockOutcome,
+  BoardRoomStoreOptions,
+} from './roomStore.js';
 
 export const BOARD_NAMESPACE = '/board';
-
-/** 空房保留期（§5.14：最后一人离开后保留 10min，防抖动重连）。 */
-export const DEFAULT_ROOM_TTL_MS = 10 * 60 * 1000;
-
-/** 白板房间名（一个白板一个房间，§5.1）。 */
-export function boardRoom(boardId: string): string {
-  return `board:${boardId}`;
-}
-
-/** 跨会话单播房间名（socket.id 重连会变，§6）。 */
-export function userRoom(userId: string): string {
-  return `user:${userId}`;
-}
-
-export interface RoomDestroyInfo {
-  opsDropped: number;
-}
-
-export interface BoardRoomStoreOptions {
-  /** 环形日志容量（默认 10k，§10）；测试可缩小。 */
-  oplogCapacity?: number;
-  /** 空房保留期（默认 10min，§5.14）；测试可缩短。 */
-  roomTtlMs?: number;
-  onDestroy?: (boardId: string, info: RoomDestroyInfo) => void;
-}
-
-interface RoomState {
-  readonly boardId: string;
-  /** socketId → 参与者。 */
-  readonly participants: Map<string, ParticipantInfo>;
-  readonly oplog: OpLog;
-  cleanupTimer: NodeJS.Timeout | null;
-}
-
-/** 房间存储：参与者 / op 日志 / 水位 / 空房清理。 */
-export class BoardRoomStore {
-  private readonly rooms = new Map<string, RoomState>();
-  private readonly oplogCapacity: number;
-  private readonly roomTtlMs: number;
-  private readonly onDestroy: ((boardId: string, info: RoomDestroyInfo) => void) | undefined;
-
-  constructor(options: BoardRoomStoreOptions = {}) {
-    this.oplogCapacity = options.oplogCapacity ?? DEFAULT_OPLOG_CAPACITY;
-    this.roomTtlMs = options.roomTtlMs ?? DEFAULT_ROOM_TTL_MS;
-    this.onDestroy = options.onDestroy;
-  }
-
-  /** 当前房间数（测试断言清理用）。 */
-  get roomCount(): number {
-    return this.rooms.size;
-  }
-
-  /** 加入 / 刷新参与者；取消待清理定时器。 */
-  join(boardId: string, participant: ParticipantInfo): { isNew: boolean } {
-    const room = this.getOrCreate(boardId);
-    this.cancelCleanup(room);
-    const isNew = !room.participants.has(participant.socketId);
-    room.participants.set(participant.socketId, participant);
-    return { isNew };
-  }
-
-  /** 移除参与者；空房启动清理倒计时；返回被移除的参与者。 */
-  leave(boardId: string, socketId: string): ParticipantInfo | null {
-    const room = this.rooms.get(boardId);
-    if (!room) return null;
-    const participant = room.participants.get(socketId) ?? null;
-    if (participant) room.participants.delete(socketId);
-    if (room.participants.size === 0) this.scheduleCleanup(room);
-    return participant;
-  }
-
-  /** 参与者快照（插入序）。 */
-  participants(boardId: string): ParticipantInfo[] {
-    const room = this.rooms.get(boardId);
-    return room ? [...room.participants.values()] : [];
-  }
-
-  /** 版本水位快照。 */
-  stateVector(boardId: string): BoardStateVector {
-    return this.rooms.get(boardId)?.oplog.stateVector() ?? {};
-  }
-
-  /** 房间 op 日志（不存在返回 null）。 */
-  oplog(boardId: string): OpLog | null {
-    return this.rooms.get(boardId)?.oplog ?? null;
-  }
-
-  /** 立即销毁指定房间（返回是否存在）。 */
-  destroy(boardId: string): boolean {
-    const room = this.rooms.get(boardId);
-    if (!room) return false;
-    this.cancelCleanup(room);
-    this.rooms.delete(boardId);
-    return true;
-  }
-
-  /** 清空全部房间与待清理定时器（server 关闭时调用）。 */
-  dispose(): void {
-    for (const room of this.rooms.values()) this.cancelCleanup(room);
-    this.rooms.clear();
-  }
-
-  private getOrCreate(boardId: string): RoomState {
-    const existing = this.rooms.get(boardId);
-    if (existing) return existing;
-    const room: RoomState = {
-      boardId,
-      participants: new Map<string, ParticipantInfo>(),
-      oplog: new OpLog(this.oplogCapacity),
-      cleanupTimer: null,
-    };
-    this.rooms.set(boardId, room);
-    return room;
-  }
-
-  private scheduleCleanup(room: RoomState): void {
-    this.cancelCleanup(room);
-    const timer = setTimeout(() => {
-      room.cleanupTimer = null;
-      this.rooms.delete(room.boardId);
-      this.onDestroy?.(room.boardId, { opsDropped: room.oplog.count });
-    }, this.roomTtlMs);
-    timer.unref();
-    room.cleanupTimer = timer;
-  }
-
-  private cancelCleanup(room: RoomState): void {
-    if (room.cleanupTimer !== null) {
-      clearTimeout(room.cleanupTimer);
-      room.cleanupTimer = null;
-    }
-  }
-}
 
 export interface BoardNamespaceDeps {
   env: NodeJS.ProcessEnv;
@@ -198,31 +85,32 @@ interface HandlerDeps {
   rooms: BoardRoomStore;
 }
 
-function readNonEmptyString(value: unknown): string | null {
-  if (typeof value !== 'string') return null;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
-}
-
 function failure(code: string, message: string): BoardAckFailure {
   return { ok: false, error: { code, message } };
 }
 
-/** 解析客户端水位向量（`{actor: seq}`；非法值 → null，触发 INVALID_ARGUMENT）。 */
-function readSeqVector(value: unknown): BoardStateVector | null {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
-  const out: BoardStateVector = {};
-  for (const [actor, seq] of Object.entries(value as Record<string, unknown>)) {
-    if (typeof seq !== 'number' || !Number.isInteger(seq) || seq < 0) return null;
-    out[actor] = seq;
-  }
-  return out;
-}
-
-/** 挂载 `/board` namespace：认证中间件 + M1 事件集（含 M0 POC 兼容层）。 */
+/** 挂载 `/board` namespace：认证中间件 + M1/M2/M3 事件集（含 M0 POC 兼容层）。 */
 export function attachBoardNamespace(io: BoardServer, deps: BoardNamespaceDeps): BoardNamespace {
   const namespace = io.of(BOARD_NAMESPACE);
   const { env, audit, rooms } = deps;
+
+  // M2：超时锁释放（定时扫描 / 惰性检查共用）→ 房间广播 lock:changed('expired') + 审计。
+  rooms.setLockExpiredHandler((boardId, elementId, lock) => {
+    namespace.to(boardRoom(boardId)).emit('lock:changed', { elementId, userId: lock.userId, action: 'expired' });
+    audit.record(
+      buildAuditEntry({
+        userId: lock.userId,
+        action: 'lock.expired',
+        target: { type: 'element', id: elementId },
+        result: 'success',
+        boardId,
+        detail: 'ttl elapsed',
+      }),
+    );
+  });
+
+  // M3（契约 E）：host 转移窗口到期 → 移交候选 + 广播 + 审计（处理器内部再做存续 / 在线 Host 判定）。
+  installHostTransferHandler(namespace, { audit, rooms });
 
   namespace.use((socket, next) => {
     const identity = resolveConnectionIdentity(socket.handshake.auth, env);
@@ -236,6 +124,8 @@ export function attachBoardNamespace(io: BoardServer, deps: BoardNamespaceDeps):
     }
     socket.data.userId = identity.userId;
     socket.data.authMode = identity.kind;
+    // 契约 D：token role 不可变持久角色（clampSessionRole 上限来源）；会话角色初始 = token role。
+    socket.data.tokenRole = identity.role;
     socket.data.role = identity.role;
     if (identity.kind === 'anonymous') {
       if (identity.fallbackReason === 'missing_secret') {
@@ -259,6 +149,8 @@ export function attachBoardNamespace(io: BoardServer, deps: BoardNamespaceDeps):
 
   namespace.on('connection', (socket) => {
     registerBoardHandlers(namespace, socket, { audit, rooms });
+    registerInteractiveHandlers(namespace, socket, { audit, rooms });
+    registerCheckpointHandlers(namespace, socket, { audit, rooms });
   });
 
   return namespace;
@@ -294,7 +186,7 @@ function registerBoardHandlers(namespace: BoardNamespace, socket: BoardSocket, d
     );
   };
 
-  // —— board:join：加入 / 切换房间，回 joined 快照（§5.3）——
+  // —— board:join：加入 / 切换房间，回 joined 快照（§5.3；M3：冲突降级 + presenterId + snapshot）——
   socket.on('board:join', (payload, ack) => {
     const boardId = readNonEmptyString(payload?.boardId);
     if (!boardId) {
@@ -315,10 +207,40 @@ function registerBoardHandlers(namespace: BoardNamespace, socket: BoardSocket, d
       leaveBoard(namespace, socket, rooms, audit, 'switch');
     }
 
+    // M3（契约 D/E）：同板重连沿用会话角色；首次 / 切房回到 token 角色；Host 冲突降级 CoHost；
+    // 房主自举：房间无在线 Host 时首入的可写角色升 Host（Viewer/Guest 只读声明不参与）。
+    let sessionRole: BoardRole = previous === boardId ? socket.data.role : socket.data.tokenRole;
+    if (sessionRole === 'Host' && rooms.hasOnlineHost(boardId, userId)) {
+      sessionRole = clampSessionRole(socket.data.tokenRole, 'CoHost');
+      audit.record(
+        buildAuditEntry({
+          userId,
+          action: 'interactive.hostConflict',
+          target: { type: 'board', id: boardId },
+          result: 'denied',
+          boardId,
+          detail: 'host already online; session role downgraded to CoHost',
+        }),
+      );
+    } else if (sessionRole !== 'Host' && !rooms.hasOnlineHost(boardId) && roleCanWrite(sessionRole)) {
+      sessionRole = clampSessionRole(socket.data.tokenRole, 'Host');
+      audit.record(
+        buildAuditEntry({
+          userId,
+          action: 'interactive.hostBootstrapped',
+          target: { type: 'board', id: boardId },
+          result: 'success',
+          boardId,
+          detail: 'no online host; session role bootstrapped to Host',
+        }),
+      );
+    }
+    socket.data.role = sessionRole;
+
     const participant: ParticipantInfo = {
       userId,
       socketId: socket.id,
-      role: socket.data.role,
+      role: sessionRole,
       joinedAt: Date.now(),
     };
     const { isNew } = rooms.join(boardId, participant);
@@ -329,10 +251,16 @@ function registerBoardHandlers(namespace: BoardNamespace, socket: BoardSocket, d
       boardId,
       participants: rooms.participants(boardId),
       role: participant.role,
-      mode: 'free',
-      locks: [],
+      mode: rooms.roomMode(boardId) ?? 'free',
+      presenterId: rooms.presenterIdOf(boardId),
+      locks: rooms.lockSnapshot(boardId),
       stateVector: rooms.stateVector(boardId),
     };
+    // M3（契约 F）：新成员（未携带 lastSeenVersion 或空）且存在 checkpoint → snapshot 下发（§7 快照策略）。
+    const checkpoint = rooms.checkpointOf(boardId);
+    if (checkpoint !== null && (lastSeen === null || Object.keys(lastSeen).length === 0)) {
+      joined.snapshot = { stateVector: checkpoint.stateVector, payload: checkpoint.payload };
+    }
     socket.emit('board:joined', joined);
     if (isNew) {
       socket.to(boardRoom(boardId)).emit('board:participants', { joined: [participant] });
@@ -375,21 +303,23 @@ function registerBoardHandlers(namespace: BoardNamespace, socket: BoardSocket, d
     ack?.({ ok: true, replayed: replay.length });
   });
 
-  // —— board:ops：去重 / gap 校验 / 落日志 / 广播（§5.4 核心链路）——
+  // —— board:ops：去重 / gap 校验 / 落日志 / 广播（§5.4 核心链路）；M3：effective 写权 + 采样 + checkpoint ——
   socket.on('board:ops', (payload, ack) => {
     const boardId = socket.data.boardId;
     if (!boardId) {
       rejectRequest(ack, 'NotInRoom', 'Join a board before sending ops', 'ops before joining a room');
       return;
     }
-    if (!roleCanWrite(socket.data.role)) {
-      rejectRequest(
-        ack,
-        'Forbidden',
-        `Role ${socket.data.role} cannot submit ops`,
-        `role ${socket.data.role} cannot submit ops`,
-        boardId,
-      );
+    // M3（契约 A；2026-11 修订）：写权统一走 effectiveCanWrite——Host/CoHost 恒可写、
+    // free 默认 ≥Write（含 Participant）可写、present 收窄为 Host/CoHost/Presenter
+    // （事实来源为参与者表）。
+    const participant = rooms.participant(boardId, socket.id);
+    const mode = rooms.roomMode(boardId) ?? 'free';
+    const canWrite =
+      participant !== null && effectiveCanWrite(participant.role, participant.grantedWrite === true, mode);
+    if (!canWrite) {
+      const role = participant?.role ?? socket.data.role;
+      rejectRequest(ack, 'Forbidden', `Role ${role} cannot submit ops`, `role ${role} cannot submit ops`, boardId);
       return;
     }
     if (!Array.isArray(payload) || payload.length === 0) {
@@ -427,6 +357,22 @@ function registerBoardHandlers(namespace: BoardNamespace, socket: BoardSocket, d
     if (accepted.length > 0) {
       // 房间广播，排除发送者（§5.4 第 5 步）。
       socket.to(boardRoom(boardId)).emit('board:ops', accepted, { from: userId });
+      // M3（契约 G）：ops 采样审计（每 32 条入站 op 落 1 条，防膨胀）。
+      const { samples, checkpointDue } = rooms.noteAcceptedOps(boardId, accepted.length);
+      for (let index = 0; index < samples; index += 1) {
+        audit.record(
+          buildAuditEntry({
+            userId,
+            action: 'ops.sampled',
+            target: { type: 'board', id: boardId },
+            result: 'success',
+            boardId,
+            detail: `interval=${OPS_AUDIT_SAMPLE_INTERVAL}`,
+          }),
+        );
+      }
+      // M3（契约 F）：达到阈值 → 单播 board:checkpointRequest 给候选客户端（去抖 / 超时见 roomStore）。
+      if (checkpointDue) maybeRequestCheckpoint(namespace, { audit, rooms }, boardId);
     }
     if (gapMissing !== null) {
       ack?.({ ok: false, missingSeqs: gapMissing });
@@ -453,7 +399,7 @@ function registerBoardHandlers(namespace: BoardNamespace, socket: BoardSocket, d
     ack?.({ ok: true, replayed: replay.length });
   });
 
-  // —— board:leave：退出房间 + 广播 left + 关闭连接（§5.14）——
+  // —— board:leave：退出房间 + 释放锁 + 广播 left + 关闭连接（§5.14）——
   socket.on('board:leave', (_payload, ack) => {
     leaveBoard(namespace, socket, rooms, audit, 'leave');
     ack?.({ ok: true });
@@ -462,6 +408,151 @@ function registerBoardHandlers(namespace: BoardNamespace, socket: BoardSocket, d
 
   socket.on('board:ping', (_payload, ack) => {
     ack?.({ ok: true, serverTime: Date.now() });
+  });
+
+  // —— M2: presence:preview —— 泛化中间态转发（§5.5 / D2-B）：仅做在房校验，透传载荷 + 服务端权威 userId。
+  // 无 ack；未入房静默忽略；服务端不解释不校验 kind；广播排除发送者；高频流不落审计。
+  socket.on('presence:preview', (payload) => {
+    const boardId = socket.data.boardId;
+    if (!boardId) return;
+    if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) return;
+    const forwarded: PresencePreviewOutPayload = { ...payload, userId };
+    socket.to(boardRoom(boardId)).emit('presence:preview', forwarded);
+  });
+
+  // —— M2: lock:acquire / lock:release / lock:renew —— 软锁（§5.6 / D2-C）。
+  // 轻量回执（不复用 BoardAckFailure 错误信封）；TTL 30s，客户端 10s 心跳 renew；锁表仅存服务端内存。
+  // M3（契约 A）：acquire 写权切换为 effective 判定（participant.grantedWrite / present 收窄均生效）。
+  socket.on('lock:acquire', (payload, ack) => {
+    const boardId = socket.data.boardId;
+    if (!boardId) {
+      ack?.({ ok: false, reason: 'not-in-room' });
+      return;
+    }
+    const participant = rooms.participant(boardId, socket.id);
+    const mode = rooms.roomMode(boardId) ?? 'free';
+    const canWrite =
+      participant !== null && effectiveCanWrite(participant.role, participant.grantedWrite === true, mode);
+    if (!canWrite) {
+      ack?.({ ok: false, reason: 'forbidden' });
+      audit.record(
+        buildAuditEntry({
+          userId,
+          action: 'lock.denied',
+          target: { type: 'element', id: readNonEmptyString(payload?.elementId) },
+          result: 'denied',
+          boardId,
+          detail: `acquire denied: role ${participant?.role ?? socket.data.role} cannot lock elements`,
+        }),
+      );
+      return;
+    }
+    const elementId = readNonEmptyString(payload?.elementId);
+    if (!elementId) {
+      ack?.({ ok: false, reason: 'invalid-element' });
+      audit.record(
+        buildAuditEntry({
+          userId,
+          action: 'lock.denied',
+          target: { type: 'element', id: null },
+          result: 'denied',
+          boardId,
+          detail: 'acquire denied: elementId is required',
+        }),
+      );
+      return;
+    }
+    const outcome = rooms.acquireLock(boardId, elementId, userId, socket.id);
+    if (outcome.result === 'no-room') {
+      ack?.({ ok: false, reason: 'not-in-room' });
+      return;
+    }
+    if (outcome.result === 'busy') {
+      // 已被他人占用：单播拒绝回执（不广播）。
+      ack?.({ ok: true, granted: false, holderUserId: outcome.holderUserId });
+      audit.record(
+        buildAuditEntry({
+          userId,
+          action: 'lock.denied',
+          target: { type: 'element', id: elementId },
+          result: 'denied',
+          boardId,
+          detail: `acquire denied: held by ${outcome.holderUserId}`,
+        }),
+      );
+      return;
+    }
+    ack?.({ ok: true, granted: true, elementId, expiresAt: outcome.expiresAt });
+    socket.to(boardRoom(boardId)).emit('lock:changed', {
+      elementId,
+      userId,
+      action: 'acquired',
+      expiresAt: outcome.expiresAt,
+    });
+    audit.record(
+      buildAuditEntry({
+        userId,
+        action: 'lock.acquired',
+        target: { type: 'element', id: elementId },
+        result: 'success',
+        boardId,
+        detail: outcome.refreshed ? 're-acquire refreshed ttl' : 'granted',
+      }),
+    );
+  });
+
+  socket.on('lock:release', (payload, ack) => {
+    const boardId = socket.data.boardId;
+    if (!boardId) {
+      ack?.({ ok: false, reason: 'not-in-room' });
+      return;
+    }
+    const elementId = readNonEmptyString(payload?.elementId);
+    if (!elementId) {
+      ack?.({ ok: false, reason: 'invalid-element' });
+      return;
+    }
+    const outcome = rooms.releaseLock(boardId, elementId, userId);
+    if (outcome.result === 'not-holder') {
+      ack?.({ ok: false, reason: 'not-holder' });
+      return;
+    }
+    ack?.({ ok: true });
+    socket.to(boardRoom(boardId)).emit('lock:changed', {
+      elementId,
+      userId: outcome.lock.userId,
+      action: 'released',
+    });
+    audit.record(
+      buildAuditEntry({
+        userId,
+        action: 'lock.released',
+        target: { type: 'element', id: elementId },
+        result: 'success',
+        boardId,
+        detail: 'explicit',
+      }),
+    );
+  });
+
+  socket.on('lock:renew', (payload, ack) => {
+    const boardId = socket.data.boardId;
+    if (!boardId) {
+      ack?.({ ok: false });
+      return;
+    }
+    const elementId = readNonEmptyString(payload?.elementId);
+    if (!elementId) {
+      ack?.({ ok: false });
+      return;
+    }
+    const outcome = rooms.renewLock(boardId, elementId, userId);
+    if (outcome.result !== 'renewed') {
+      ack?.({ ok: false });
+      return;
+    }
+    // 续约不广播、不审计（10s 心跳高频；§D2-C）。
+    ack?.({ ok: true, expiresAt: outcome.expiresAt });
   });
 
   // —— M0 POC 兼容层（非 §6 契约；保留用于链路自检，12-app-web POC 依赖）——
@@ -494,7 +585,12 @@ function registerBoardHandlers(namespace: BoardNamespace, socket: BoardSocket, d
   });
 }
 
-/** 统一离开流程：移出参与者表 / 房间 → 广播 left → 空房启动清理 → 审计。 */
+/**
+ * 统一离开流程：释放该 socket 持有的全部锁（广播 lock:changed('released') + 审计）
+ * → 移出参与者表 / 房间 → 广播 left → 空房启动清理 → 审计
+ * → M3（契约 E）：Host 离场启动转移窗口（同 userId 60s 内回归由 roomStore.join 取消）。
+ * 断连 / 显式 leave / 切房（switch）共用；释放广播 action 固定 'released'，审计 detail = reason。
+ */
 function leaveBoard(
   namespace: BoardNamespace,
   socket: BoardSocket,
@@ -505,8 +601,27 @@ function leaveBoard(
   const boardId = socket.data.boardId;
   if (!boardId) return;
   socket.data.boardId = undefined;
+  const releasedLocks = rooms.releaseLocksBySocket(boardId, socket.id);
   const participant = rooms.leave(boardId, socket.id);
   void socket.leave(boardRoom(boardId));
+  // 锁释放广播：此时发送者已不在房间，发给房间剩余成员（与 participants.left 同语义）。
+  for (const { elementId, lock } of releasedLocks) {
+    namespace.to(boardRoom(boardId)).emit('lock:changed', {
+      elementId,
+      userId: lock.userId,
+      action: 'released',
+    });
+    audit.record(
+      buildAuditEntry({
+        userId: lock.userId,
+        action: 'lock.released',
+        target: { type: 'element', id: elementId },
+        result: 'success',
+        boardId,
+        detail: reason,
+      }),
+    );
+  }
   if (!participant) return;
   // 此时发送者已不在房间：发给房间剩余成员。
   namespace.to(boardRoom(boardId)).emit('board:participants', { left: [participant] });
@@ -520,4 +635,8 @@ function leaveBoard(
       detail: reason,
     }),
   );
+  // M3（契约 E）：Host 离场 → 启动转移窗口（无人可移交 / 已回归 / 已有在线 Host 时到期自动放弃）。
+  if (participant.role === 'Host') {
+    rooms.scheduleHostTransfer(boardId, participant.userId);
+  }
 }

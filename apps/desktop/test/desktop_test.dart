@@ -119,6 +119,22 @@ class _FakeCollabEngine implements WbCollabEngine {
       op: applied,
     );
   }
+
+  @override
+  WbSyncPreviewResult sendPreview(Map<String, dynamic> preview) =>
+      const WbSyncPreviewResult(sent: true);
+
+  @override
+  WbSyncLockResult lock({required String action, required String elementId}) =>
+      const WbSyncLockResult(requested: true);
+
+  @override
+  WbSyncInteractiveResult interactive({
+    required String action,
+    String? userId,
+    String? targetUserId,
+  }) =>
+      const WbSyncInteractiveResult();
 }
 
 void main() {
@@ -141,7 +157,7 @@ void main() {
       expect(board.isDemoMode, isTrue);
       expect(board.board?.name, '测试白板');
 
-      final WbPageState pages = WbPageState(ffi: ffi);
+      final WbPageState pages = WbPageState(ops: WbFfiPageOps(ffi));
       pages.attach(board.board!);
       expect(pages.pages.length, 1);
       expect(pages.currentPageId, 'demo-1-page-1');
@@ -153,7 +169,7 @@ void main() {
     test('页面增删改排序', () {
       final WbFfiService ffi = _demoFfi();
       final WbBoardState board = WbBoardState(ffi: ffi)..open('demo-2');
-      final WbPageState pages = WbPageState(ffi: ffi)..attach(board.board!);
+      final WbPageState pages = WbPageState(ops: WbFfiPageOps(ffi))..attach(board.board!);
       final String first = pages.pages.first.id;
 
       pages.addPage();

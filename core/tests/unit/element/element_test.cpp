@@ -38,6 +38,12 @@ TEST_CASE("element.create assigns zIndex and list returns z-order",
       "\"size\":{\"width\":100,\"height\":50}}");
   REQUIRE(!b.empty());
   REQUIRE(a != b);
+  // Namespaced ids (`element-<ns>-<n>`), never a bare `element-<n>`: two
+  // concurrently running clients must not mint colliding ids (方案 B).
+  REQUIRE(a.rfind("element-", 0) == 0);
+  REQUIRE(b.rfind("element-", 0) == 0);
+  REQUIRE(a.substr(std::string("element-").size()).find('-') !=
+          std::string::npos);
 
   const std::string list = ListOp(pageId);
   REQUIRE(JsonBool(list, "ok", true));

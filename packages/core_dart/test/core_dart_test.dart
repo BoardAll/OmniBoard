@@ -341,8 +341,18 @@ void main() {
         'room': <String, dynamic>{
           'participants': <dynamic>['u1', 'u2'],
           'mode': 'free',
-          'locks': <dynamic>[
-            <String, dynamic>{'key': 'a', 'actor': 'u1'},
+          'locks': <String, dynamic>{
+            'el-1': <String, dynamic>{'userId': 'u1', 'expiresAt': 111},
+          },
+          'lockAcks': <dynamic>[
+            <String, dynamic>{
+              'elementId': 'el-1',
+              'action': 'acquire',
+              'granted': true,
+              'holderUserId': 'u1',
+              'expiresAt': 111,
+              'ok': true,
+            },
           ],
         },
         'status': <String, dynamic>{'connected': true, 'pendingCount': 1},
@@ -355,6 +365,13 @@ void main() {
       expect(data.room.participants, <dynamic>['u1', 'u2']);
       expect(data.room.mode, 'free');
       expect(data.room.locks, hasLength(1));
+      expect(data.room.locks['el-1']['userId'], 'u1');
+      expect(data.room.locks['el-1']['expiresAt'], 111);
+      expect(data.room.lockAcks, hasLength(1));
+      expect(data.room.lockAcks.first['elementId'], 'el-1');
+      expect(data.room.lockAcks.first['action'], 'acquire');
+      expect(data.room.lockAcks.first['granted'], isTrue);
+      expect(data.room.lockAcks.first['ok'], isTrue);
       expect(data.status.connected, isTrue);
       expect(data.status.pendingCount, 1);
 
@@ -365,7 +382,63 @@ void main() {
       expect(empty.room.mode, '');
       expect(empty.room.participants, isEmpty);
       expect(empty.room.locks, isEmpty);
+      expect(empty.room.lockAcks, isEmpty);
       expect(empty.status.connected, isFalse);
+    });
+
+    test('WbSyncRoomData locks 对象 map / lockAcks 形状与缺省', () {
+      final WbSyncRoomData room = WbSyncRoomData.fromJson(<String, dynamic>{
+        'locks': <String, dynamic>{
+          'el-1': <String, dynamic>{'userId': 'u1', 'expiresAt': 1000},
+          'el-2': <String, dynamic>{'userId': 'u2', 'expiresAt': 2000},
+        },
+        'lockAcks': <dynamic>[
+          <String, dynamic>{
+            'elementId': 'el-1',
+            'action': 'acquire',
+            'granted': true,
+            'holderUserId': 'u1',
+            'expiresAt': 1000,
+            'ok': true,
+          },
+          <String, dynamic>{
+            'elementId': 'el-2',
+            'action': 'renew',
+            'granted': false,
+            'ok': false,
+          },
+        ],
+      });
+      expect(room.locks, hasLength(2));
+      expect(room.locks['el-1'], <String, dynamic>{
+        'userId': 'u1',
+        'expiresAt': 1000,
+      });
+      expect(room.locks['el-2']['expiresAt'], 2000);
+      expect(room.lockAcks, hasLength(2));
+      expect(room.lockAcks.first['holderUserId'], 'u1');
+      expect(room.lockAcks.last['action'], 'renew');
+      expect(room.lockAcks.last.containsKey('holderUserId'), isFalse);
+
+      final WbSyncRoomData blank = WbSyncRoomData.fromJson(<String, dynamic>{});
+      expect(blank.locks, isEmpty);
+      expect(blank.lockAcks, isEmpty);
+    });
+
+    test('WbSyncRoomData 旧数组 locks 宽容降级为空 map', () {
+      final WbSyncRoomData legacy = WbSyncRoomData.fromJson(<String, dynamic>{
+        'locks': <dynamic>[
+          <String, dynamic>{'elementId': 'el-1', 'userId': 'u1'},
+        ],
+      });
+      expect(legacy.locks, isEmpty);
+
+      final WbSyncRoomData malformed = WbSyncRoomData.fromJson(<String, dynamic>{
+        'locks': 'not-a-map',
+        'lockAcks': 'not-a-list',
+      });
+      expect(malformed.locks, isEmpty);
+      expect(malformed.lockAcks, isEmpty);
     });
 
     test('join / sendOperation / flush / sendPreview 响应解析', () {
@@ -410,6 +483,19 @@ void main() {
           WbSyncPreviewResult.fromJson(<String, dynamic>{'dropped': true});
       expect(dropped.sent, isFalse);
       expect(dropped.dropped, isTrue);
+    });
+
+    test('WbSyncLockResult 解析 requested', () {
+      final WbSyncLockResult accepted =
+          WbSyncLockResult.fromJson(<String, dynamic>{'requested': true});
+      expect(accepted.requested, isTrue);
+      final WbSyncLockResult rejected =
+          WbSyncLockResult.fromJson(<String, dynamic>{'requested': false});
+      expect(rejected.requested, isFalse);
+      expect(
+        WbSyncLockResult.fromJson(<String, dynamic>{}).requested,
+        isFalse,
+      );
     });
 
     test('WbCrdtCreateData / WbCrdtApplyData 解析（含 op 字段）', () {
@@ -482,6 +568,107 @@ void main() {
                 'sync transport is not connected')),
       );
     });
+
+    test('WbSyncInteractiveResult 解析 requested', () {
+      final WbSyncInteractiveResult accepted = WbSyncInteractiveResult.fromJson(
+        <String, dynamic>{'requested': true},
+      );
+      expect(accepted.requested, isTrue);
+      final WbSyncInteractiveResult rejected = WbSyncInteractiveResult.fromJson(
+        <String, dynamic>{'requested': false},
+      );
+      expect(rejected.requested, isFalse);
+      expect(
+        WbSyncInteractiveResult.fromJson(<String, dynamic>{}).requested,
+        isFalse,
+      );
+    });
+
+    test('WbSyncRoomData M3 快照字段解析与宽容', () {
+      final WbSyncRoomData room = WbSyncRoomData.fromJson(<String, dynamic>{
+        'mode': 'present',
+        'selfRole': 'Presenter',
+        'presenterId': 'u1',
+        'hostUserId': 'u9',
+        'grantedWrite': true,
+        'checkpointStatus': 'requested',
+        'recovered': true,
+      });
+      expect(room.mode, 'present');
+      expect(room.selfRole, 'Presenter');
+      expect(room.presenterId, 'u1');
+      expect(room.hostUserId, 'u9');
+      expect(room.grantedWrite, isTrue);
+      expect(room.checkpointStatus, 'requested');
+      expect(room.recovered, isTrue);
+
+      final WbSyncRoomData blank = WbSyncRoomData.fromJson(<String, dynamic>{});
+      expect(blank.selfRole, '');
+      expect(blank.presenterId, '');
+      expect(blank.hostUserId, '');
+      expect(blank.grantedWrite, isFalse);
+      expect(blank.checkpointStatus, 'idle');
+      expect(blank.recovered, isFalse);
+
+      final WbSyncRoomData malformed = WbSyncRoomData.fromJson(<String, dynamic>{
+        'selfRole': 42,
+        'presenterId': <String, dynamic>{},
+        'hostUserId': false,
+        'grantedWrite': 'yes',
+        'checkpointStatus': 3,
+        'recovered': 'true',
+      });
+      expect(malformed.selfRole, '');
+      expect(malformed.presenterId, '');
+      expect(malformed.hostUserId, '');
+      expect(malformed.grantedWrite, isFalse);
+      expect(malformed.checkpointStatus, 'idle');
+      expect(malformed.recovered, isFalse);
+    });
+
+    test('WbSyncEventsData M3 drain 批次解析（acks / follows / removed）', () {
+      final WbSyncEventsData data = WbSyncEventsData.fromJson(<String, dynamic>{
+        'interactiveAcks': <dynamic>[
+          <String, dynamic>{'action': 'raiseHand', 'ok': true},
+          <String, dynamic>{
+            'action': 'grantControl',
+            'ok': false,
+            'reason': 'permission denied',
+          },
+        ],
+        'incomingFollows': <dynamic>[
+          <String, dynamic>{'followerUserId': 'u3', 'action': 'follow'},
+          <String, dynamic>{'followerUserId': 'u4', 'action': 'unfollow'},
+        ],
+        'removed': <String, dynamic>{'reason': 'kicked by host'},
+      });
+      expect(data.interactiveAcks, hasLength(2));
+      expect(data.interactiveAcks.first['action'], 'raiseHand');
+      expect(data.interactiveAcks.first['ok'], isTrue);
+      expect(data.interactiveAcks.first.containsKey('reason'), isFalse);
+      expect(data.interactiveAcks.last['reason'], 'permission denied');
+      expect(data.incomingFollows, hasLength(2));
+      expect(data.incomingFollows.first['followerUserId'], 'u3');
+      expect(data.incomingFollows.first['action'], 'follow');
+      expect(data.incomingFollows.last['action'], 'unfollow');
+      expect(data.removed['reason'], 'kicked by host');
+
+      final WbSyncEventsData blank =
+          WbSyncEventsData.fromJson(<String, dynamic>{});
+      expect(blank.interactiveAcks, isEmpty);
+      expect(blank.incomingFollows, isEmpty);
+      expect(blank.removed, isEmpty);
+
+      final WbSyncEventsData malformed =
+          WbSyncEventsData.fromJson(<String, dynamic>{
+        'interactiveAcks': 'not-a-list',
+        'incomingFollows': <String, dynamic>{'x': 1},
+        'removed': 'not-a-map',
+      });
+      expect(malformed.interactiveAcks, isEmpty);
+      expect(malformed.incomingFollows, isEmpty);
+      expect(malformed.removed, isEmpty);
+    });
   });
 
   group('native smoke (wb_core.dll)', () {
@@ -537,7 +724,7 @@ void main() {
     final String dllPath = _findWbCoreDll();
     final bool available = dllPath.isNotEmpty;
 
-    test('绑定表暴露 11 个协同符号', () {
+    test('绑定表暴露 13 个协同符号', () {
       final WbCoreFfi ffi = WbCoreFfi.load(overridePath: dllPath);
       final WbCoreBindings bindings = ffi.bindings;
       // 控制面（既有 4）。
@@ -551,6 +738,10 @@ void main() {
       expect(bindings.wbSyncFlush, isNotNull);
       expect(bindings.wbSyncEvents, isNotNull);
       expect(bindings.wbSyncSendPreview, isNotNull);
+      // M2 锁转发（+1）。
+      expect(bindings.wbSyncLock, isNotNull);
+      // M3 交互转发（+1）。
+      expect(bindings.wbSyncInteractive, isNotNull);
       // CRDT（M1 新增 2）。
       expect(bindings.wbCrdtCreate, isNotNull);
       expect(bindings.wbCrdtApplyLocal, isNotNull);
@@ -629,6 +820,7 @@ void main() {
       expect(events.room.mode, '');
       expect(events.room.participants, isEmpty);
       expect(events.room.locks, isEmpty);
+      expect(events.room.lockAcks, isEmpty);
       expect(events.status.pendingCount, greaterThanOrEqualTo(second.pendingCount));
     }, skip: available ? false : 'wb_core.dll 不存在，跳过 sync/crdt 原生回归');
 
@@ -645,6 +837,70 @@ void main() {
       );
       expect(result.dropped, isTrue);
       expect(result.sent, isFalse);
+    }, skip: available ? false : 'wb_core.dll 不存在，跳过 sync/crdt 原生回归');
+
+    test('lock 参数校验与离线 requested:false', () {
+      final WbSyncService sync =
+          WbSyncService(WbCoreFfi.load(overridePath: dllPath));
+      sync.setOffline(false); // 归一化，保证断言确定性。
+
+      expect(
+        () => sync.lock(action: '', elementId: 'm2-dart-el'),
+        throwsA(isA<WbCoreException>()
+            .having((WbCoreException e) => e.code, 'code', 'InvalidArgument')),
+      );
+      expect(
+        () => sync.lock(action: 'acquire', elementId: ''),
+        throwsA(isA<WbCoreException>()
+            .having((WbCoreException e) => e.code, 'code', 'InvalidArgument')),
+      );
+      expect(
+        () => sync.lock(action: 'bogus', elementId: 'm2-dart-el'),
+        throwsA(isA<WbCoreException>()
+            .having((WbCoreException e) => e.code, 'code', 'InvalidArgument')),
+      );
+
+      // 未连接 → 静默降级 requested:false（恒 ok，不抛 Conflict）；
+      // 异步授予结果经 events 的 room.lockAcks。
+      final WbSyncLockResult offline =
+          sync.lock(action: 'acquire', elementId: 'm2-dart-el');
+      expect(offline.requested, isFalse);
+    }, skip: available ? false : 'wb_core.dll 不存在，跳过 sync/crdt 原生回归');
+
+    test('interactive 参数校验与离线 requested:false', () {
+      final WbSyncService sync =
+          WbSyncService(WbCoreFfi.load(overridePath: dllPath));
+      sync.setOffline(false); // 归一化，保证断言确定性。
+
+      expect(
+        () => sync.interactive(action: ''),
+        throwsA(isA<WbCoreException>()
+            .having((WbCoreException e) => e.code, 'code', 'InvalidArgument')),
+      );
+      expect(
+        () => sync.interactive(action: 'bogus'),
+        throwsA(isA<WbCoreException>()
+            .having((WbCoreException e) => e.code, 'code', 'InvalidArgument')),
+      );
+      expect(
+        () => sync.interactive(action: 'grantControl'),
+        throwsA(isA<WbCoreException>()
+            .having((WbCoreException e) => e.code, 'code', 'InvalidArgument')),
+      );
+      expect(
+        () => sync.interactive(action: 'follow'),
+        throwsA(isA<WbCoreException>()
+            .having((WbCoreException e) => e.code, 'code', 'InvalidArgument')),
+      );
+
+      // 未连接 → 静默降级 requested:false（恒 ok，不抛 Conflict）；
+      // 异步结果经 events 的 interactiveAcks。
+      final WbSyncInteractiveResult offline =
+          sync.interactive(action: 'raiseHand');
+      expect(offline.requested, isFalse);
+      final WbSyncInteractiveResult followRequest =
+          sync.interactive(action: 'follow', targetUserId: 'u-peer');
+      expect(followRequest.requested, isFalse);
     }, skip: available ? false : 'wb_core.dll 不存在，跳过 sync/crdt 原生回归');
 
     test('crdt create / applyLocal / op 直发 / NotFound', () {

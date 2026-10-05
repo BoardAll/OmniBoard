@@ -327,6 +327,55 @@ void main() {
       expect(h.engine.sentOps.single['value'], isFalse);
     });
 
+    test('upsert 携 pageId → value 内嵌 pageId（服务端保留 value 原样）',
+        () async {
+      await h.service.start(boardId: 'b1');
+
+      h.service.handleCanvasCommit(WbCanvasCommitBatch(
+        pageId: 'page-2',
+        upserts: <WbCanvasElement>[_note('e9')],
+      ));
+
+      final Map<String, dynamic> op = h.engine.sentOps.single;
+      expect(op['key'], 'el:e9:data');
+      expect((op['value'] as Map)['pageId'], 'page-2');
+    });
+
+    test('页结构出口：handlePageOp → pg:{id}:{field}', () async {
+      await h.service.start(boardId: 'b1');
+
+      h.service.handlePageOp(
+        'page-2',
+        'create',
+        <String, dynamic>{'name': '页面 2'},
+      );
+      h.service.handlePageOp('page-2', 'rename', '第二页');
+      h.service.handlePageOp('page-2', 'move', 0);
+      h.service.handlePageOp('page-2', 'delete', true);
+
+      expect(
+        h.engine.sentOps
+            .map((Map<String, dynamic> o) => o['key'])
+            .toList(),
+        <String>[
+          'pg:page-2:create',
+          'pg:page-2:rename',
+          'pg:page-2:move',
+          'pg:page-2:delete',
+        ],
+      );
+      expect(h.engine.sentOps.last['value'], isTrue);
+    });
+
+    test('页结构出口：未 start / 空参数静默跳过', () {
+      h.service.handlePageOp('page-2', 'create', null);
+      expect(h.engine.sentOps, isEmpty);
+
+      h.service.handlePageOp('', 'create', true);
+      h.service.handlePageOp('page-2', '', true);
+      expect(h.engine.sentOps, isEmpty);
+    });
+
     test('大批次：seq 递增 / 顺序 = upserts + removed', () async {
       await h.service.start(boardId: 'b1');
 
@@ -418,7 +467,8 @@ void main() {
   group('WbCollabService 画布入口', () {
     test('data op → onRemoteElement + lastSyncedAt + 状态维持', () async {
       final List<WbCanvasElement> received = <WbCanvasElement>[];
-      h.service.onRemoteElement = received.add;
+      h.service.onRemoteElement =
+          (WbCanvasElement element, {String? pageId}) => received.add(element);
       await h.service.start(boardId: 'b1');
 
       h.engine.nextOps = <Map<String, dynamic>>[_dataOp(_note('r1'))];
@@ -427,6 +477,74 @@ void main() {
       expect(received.single.id, 'r1');
       expect(h.service.lastSyncedAt, isNotNull);
       expect(h.service.status, WbSyncStatus.online);
+    });
+
+    test('data op 携 pageId → 回调透出目标页', () async {
+      final List<String> pageIds = <String>[];
+      h.service.onRemoteElement =
+          (WbCanvasElement element, {String? pageId}) =>
+              pageIds.add(pageId ?? '');
+      await h.service.start(boardId: 'b1');
+
+      final Map<String, dynamic> value =
+          WbBoardFileCodec.encodeElement(_note('r1'));
+      value['pageId'] = 'page-3';
+      h.engine.nextOps = <Map<String, dynamic>>[
+        <String, dynamic>{'key': 'el:r1:data', 'value': value},
+      ];
+      h.timers.fire();
+
+      expect(pageIds, <String>['page-3']);
+    });
+
+    test('pg: op → onRemotePageOp；同批先于元素 op 应用', () async {
+      final List<String> order = <String>[];
+      h.service.onRemotePageOp =
+          (String pageId, String field, Object? value) =>
+              order.add('pg:$pageId:$field');
+      h.service.onRemoteElement =
+          (WbCanvasElement element, {String? pageId}) =>
+              order.add('el:${element.id}');
+      await h.service.start(boardId: 'b1');
+
+      final Map<String, dynamic> elementValue =
+          WbBoardFileCodec.encodeElement(_note('r1'));
+      elementValue['pageId'] = 'page-2';
+      h.engine.nextOps = <Map<String, dynamic>>[
+        <String, dynamic>{'key': 'el:r1:data', 'value': elementValue},
+        <String, dynamic>{
+          'key': 'pg:page-2:create',
+          'value': <String, dynamic>{'name': '页面 2'},
+        },
+      ];
+      h.timers.fire();
+
+      // 同批内 pg 先于 el（目标页先落地），与 op 到达顺序无关。
+      expect(order, <String>['pg:page-2:create', 'el:r1']);
+    });
+
+    test('pg 坏键 / 未知字段：不中断，好 op 照常应用', () async {
+      final List<String> applied = <String>[];
+      h.service.onRemotePageOp =
+          (String pageId, String field, Object? value) =>
+              applied.add('$pageId:$field');
+      h.service.onRemoteElement =
+          (WbCanvasElement element, {String? pageId}) =>
+              applied.add(element.id);
+      await h.service.start(boardId: 'b1');
+
+      h.engine.nextOps = <Map<String, dynamic>>[
+        <String, dynamic>{'key': 'pg:page-1', 'value': true}, // 缺 field
+        <String, dynamic>{'key': 'pg::create', 'value': true}, // 空页 id
+        <String, dynamic>{
+          'key': 'pg:page-1:settings',
+          'value': 1,
+        }, // 未知字段：透传给页面状态（状态侧忽略）
+        _dataOp(_note('r1')), // 好 op：照常应用
+      ];
+      h.timers.fire();
+
+      expect(applied, <String>['page-1:settings', 'r1']);
     });
 
     test('exists=false → onRemoteRemove', () async {
@@ -446,7 +564,8 @@ void main() {
     test('同批多条：upsert 各自回调 + 删除收集', () async {
       final List<WbCanvasElement> received = <WbCanvasElement>[];
       final List<String> removed = <String>[];
-      h.service.onRemoteElement = received.add;
+      h.service.onRemoteElement =
+          (WbCanvasElement element, {String? pageId}) => received.add(element);
       h.service.onRemoteRemove = removed.add;
       await h.service.start(boardId: 'b1');
 
@@ -467,7 +586,7 @@ void main() {
     test('防回发：应用窗口内 isApplyingRemote=true，窗口内出口跳过', () async {
       await h.service.start(boardId: 'b1');
       bool? insideFlag;
-      h.service.onRemoteElement = (WbCanvasElement element) {
+      h.service.onRemoteElement = (WbCanvasElement element, {String? pageId}) {
         insideFlag = h.service.isApplyingRemote;
         // 窗口内画布出口（模拟回调链中触发的本地提交）：应被跳过。
         h.service.handleCanvasCommit(
@@ -487,7 +606,8 @@ void main() {
         () async {
       final List<WbCanvasElement> received = <WbCanvasElement>[];
       final List<String> removed = <String>[];
-      h.service.onRemoteElement = received.add;
+      h.service.onRemoteElement =
+          (WbCanvasElement element, {String? pageId}) => received.add(element);
       h.service.onRemoteRemove = removed.add;
       await h.service.start(boardId: 'b1');
 
@@ -508,7 +628,8 @@ void main() {
 
     test('data op 元素 id 为空：忽略', () async {
       final List<WbCanvasElement> received = <WbCanvasElement>[];
-      h.service.onRemoteElement = received.add;
+      h.service.onRemoteElement =
+          (WbCanvasElement element, {String? pageId}) => received.add(element);
       await h.service.start(boardId: 'b1');
 
       h.engine.nextOps = <Map<String, dynamic>>[

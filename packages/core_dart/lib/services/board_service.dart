@@ -1,12 +1,12 @@
+import '../engine.dart';
 import '../models/board.dart';
 import '../utils/json_codec.dart';
-import '../wb_core_ffi.dart';
 
 /// 白板服务：生命周期 + 命令/工具执行入口。
 class WbBoardService {
   const WbBoardService(this.ffi);
 
-  final WbCoreFfi ffi;
+  final WbEngineCaller ffi;
 
   /// 创建白板并返回引擎句柄（uint64）。
   ///
@@ -17,19 +17,16 @@ class WbBoardService {
       'name': name,
       if (firstPage != null) 'page': firstPage,
     });
-    return ffi.withUtf8(
-      payload,
-      (p) => ffi.bindings.wbCreateBoard(p),
-    );
+    return ffi.callU64('wb_create_board', payload);
   }
 
   /// 销毁白板（句柄失效）。
-  void destroy(int handle) => ffi.bindings.wbDestroyBoard(handle);
+  void destroy(int handle) => ffi.callVoidHandle('wb_destroy_board', handle);
 
   /// 读取白板完整快照（引擎返回 `{board: {...}}`，此处解包）。
   WbBoard get(int handle) {
     final WbResponse response =
-        WbResponse.parse(ffi.callHandle(ffi.bindings.wbBoardGet, handle));
+        WbResponse.parse(ffi.callHandle('wb_board_get', handle));
     final Map<String, dynamic> result = response.requireResult();
     return WbBoard.fromJson(WbJsonCodec.unwrap(result, 'board'));
   }
@@ -41,7 +38,7 @@ class WbBoardService {
   ) {
     final WbResponse response = WbResponse.parse(
       ffi.callHandle1(
-        ffi.bindings.wbExecuteCommand,
+        'wb_execute_command',
         handle,
         WbJsonCodec.encode(command),
       ),
@@ -55,7 +52,7 @@ class WbBoardService {
     Map<String, dynamic> args = const <String, dynamic>{},
   ]) {
     final WbResponse response = WbResponse.parse(
-      ffi.call2(ffi.bindings.wbExecuteTool, toolId, WbJsonCodec.encode(args)),
+      ffi.call2('wb_execute_tool', toolId, WbJsonCodec.encode(args)),
     );
     return response.requireResult();
   }

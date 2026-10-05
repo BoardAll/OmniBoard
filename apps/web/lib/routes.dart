@@ -34,6 +34,10 @@ abstract final class WbWebRoutes {
 
 /// 构建 Web 应用路由。
 GoRouter createWebRouter({String initialLocation = WbWebRoutes.homePath}) {
+  // 让命令式导航（`context.push`）写入浏览器 URL（go_router 默认 false）。
+  // 本应用编辑路由为可深链的声明式路径（`/board/:boardId`），开启后
+  // 刷新 / 分享链接直达编辑页，并配合本地存档恢复多页状态。
+  GoRouter.optionURLReflectsImperativeAPIs = true;
   return GoRouter(
     initialLocation: initialLocation,
     routes: <RouteBase>[
@@ -46,7 +50,8 @@ GoRouter createWebRouter({String initialLocation = WbWebRoutes.homePath}) {
           GoRoute(
             path: 'board/:boardId',
             name: WbWebRoutes.boardEdit,
-            builder: (BuildContext context, GoRouterState state) => BoardEditPage(
+            builder: (BuildContext context, GoRouterState state) =>
+                BoardEditPage(
               boardId: state.pathParameters['boardId'] ?? '',
               boardName: state.uri.queryParameters['name'] ?? '',
             ),

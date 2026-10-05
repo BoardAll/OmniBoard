@@ -35,7 +35,7 @@
 - **对外契约（只读）**：`core/include/wb/wb.h` 的 Board/Page/Element 段（`wb_create_board` … `wb_element_batch`）；JSON 数据契约 `core/tools/schema/element.schema.json`（01 维护）。
 - **被依赖**：03/04 渲染与领域模块直接 `#include "../model/scene_store.h"`（render、render2d、render3d、toolbar、background、function、flowchart、table、mindmap、document 等 14 处）；07 `packages/core_dart` 封装 `wb_element_*`/`wb_page_*`/`wb_board_*`（如 `lib/services/element_service.dart`、`page_service.dart`）；11 桌面端经 FFI 消费。
 - **依赖**：01 契约基础层（`wb/ffi/domain.h` 注册宏、`wb/platform/platform.h` 时间函数）；third_party（nlohmann/json）；测试脚手架 `core/tests/unit/support/scene_probe.h`（01 维护）。
-- **已知契约事实（回归依据）**：元素 z-order 即 `page->elements` 数组序（增删后重编号 `zIndex`）；element patch 不覆盖 `id`/`pageId`/`createdAt`，`style`/`data` 仅一级深合并；`element.delete` 级联删除指向该元素的 connector 并返回 `deletedConnectorIds`；`element.batch` 任一步失败整页回滚（`Conflict` + `failedIndex`/`failedOp`/`cause`）；FFI `wb_element_batch(pageId, opsJson)` 的 `opsJson` 必须是**顶层 JSON 数组**（引擎侧 `args.ops.is_array()` 校验）；锁定页写入返回 `Conflict`；删除最后一个页面返回 `Conflict`。
+- **已知契约事实（回归依据）**：元素 z-order 即 `page->elements` 数组序（增删后重编号 `zIndex`）；element patch 不覆盖 `id`/`pageId`/`createdAt`，`style`/`data` 仅一级深合并；`element.delete` 级联删除指向该元素的 connector 并返回 `deletedConnectorIds`；`element.batch` 任一步失败整页回滚（`Conflict` + `failedIndex`/`failedOp`/`cause`）；FFI `wb_element_batch(pageId, opsJson)` 的 `opsJson` 必须是**顶层 JSON 数组**（引擎侧 `args.ops.is_array()` 校验）；锁定页写入返回 `Conflict`；删除最后一个页面返回 `Conflict`；元素类型契约（`element.schema.json`）含 `drawing`（自由笔迹），其 `data.points` 为世界坐标采样点数组（`$defs.Drawing`）；元素 id 由 `SceneStore::newElementId()` 生成，格式 `element-<ns>-N`（`ns` 为进程级 base36 随机 8 位命名空间）——并行客户端不再产生同号 id（方案 B 跨端防撞车，`newPageId` 仍为 `page-N` 不受影响）。
 
 ## 4. 常用命令
 

@@ -273,8 +273,8 @@ class WbAnnotationController extends ChangeNotifier {
     // FFI 提交点（尽力同步）：引擎可用时同步穿透状态；不可用时静默跳过。
     _callFfi(
       'setPenetrate',
-      (WbCoreFfi core) =>
-          core.callInt(core.bindings.wbAnnotateSetPenetrate, want ? 1 : 0),
+      (WbEngineCaller core) =>
+          core.callInt('wb_annotate_set_penetrate', want ? 1 : 0),
     );
     // 平台窗口级穿透：经覆盖层服务调用 `window.setIgnoreMouseEvents`
     // （forward 保留鼠标移动消息）；插件 / 非桌面环境内部静默降级。
@@ -402,8 +402,8 @@ class WbAnnotationController extends ChangeNotifier {
   void _submitFfiEnter() {
     _callFfi(
       'enterTransparent',
-      (WbCoreFfi core) => core.call1(
-        core.bindings.wbAnnotateEnterTransparent,
+      (WbEngineCaller core) => core.call1(
+        'wb_annotate_enter_transparent',
         jsonEncode(<String, Object?>{'mode': 'annotating'}),
       ),
     );
@@ -412,20 +412,20 @@ class WbAnnotationController extends ChangeNotifier {
   void _submitFfiExit(String action) {
     _callFfi(
       'exitTransparent',
-      (WbCoreFfi core) => core.call1(
-        core.bindings.wbAnnotateExitTransparent,
+      (WbEngineCaller core) => core.call1(
+        'wb_annotate_exit_transparent',
         jsonEncode(<String, Object?>{'action': action}),
       ),
     );
   }
 
-  void _callFfi(String op, String Function(WbCoreFfi core) body) {
+  void _callFfi(String op, String Function(WbEngineCaller core) body) {
     final WbFfiService? service = _ffi;
     if (service == null || !service.isAvailable) {
       return;
     }
     try {
-      final WbCoreFfi core = service.ffi!;
+      final WbEngineCaller core = service.ffi!;
       body(core);
     } catch (e) {
       _lastError = '引擎提交失败（$op）：$e';

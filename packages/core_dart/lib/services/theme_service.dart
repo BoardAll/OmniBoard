@@ -1,8 +1,8 @@
 import 'dart:convert';
 
+import '../engine.dart';
 import '../models/theme.dart';
 import '../utils/json_codec.dart';
-import '../wb_core_ffi.dart';
 
 /// 主题服务：当前 / 列表 / 加载（theme 域）。
 ///
@@ -12,12 +12,12 @@ import '../wb_core_ffi.dart';
 class WbThemeService {
   const WbThemeService(this.ffi);
 
-  final WbCoreFfi ffi;
+  final WbEngineCaller ffi;
 
   /// 当前主题（引擎返回 `{theme: {...}}`，此处解包）。
   WbThemeSpec current() {
     final WbResponse response =
-        WbResponse.parse(ffi.call0(ffi.bindings.wbThemeCurrent));
+        WbResponse.parse(ffi.call0('wb_theme_current'));
     return WbThemeSpec.fromJson(
       WbJsonCodec.unwrap(response.requireResult(), 'theme'),
     );
@@ -26,7 +26,7 @@ class WbThemeService {
   /// 全部内置主题。
   List<WbThemeSpec> list() {
     final WbResponse response =
-        WbResponse.parse(ffi.call0(ffi.bindings.wbThemeList));
+        WbResponse.parse(ffi.call0('wb_theme_list'));
     final Map<String, dynamic> result = response.requireResult();
     return WbThemeSpec.listFromJson(result['themes'] ?? result['items']);
   }
@@ -42,7 +42,7 @@ class WbThemeService {
   /// 原始 JSON 入参直通（字符串 id 或主题对象，见类注释）。
   WbThemeSpec loadJson(String themeJson) {
     final WbResponse response = WbResponse.parse(
-      ffi.call1(ffi.bindings.wbThemeLoad, themeJson),
+      ffi.call1('wb_theme_load', themeJson),
     );
     return WbThemeSpec.fromJson(
       WbJsonCodec.unwrap(response.requireResult(), 'theme'),

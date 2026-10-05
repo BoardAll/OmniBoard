@@ -1,5 +1,7 @@
-// T1.6 真连集成测试对端探针（node）：加入 board 房间、抓取 board:ops 广播，
-// 并回发一条 op 验证反向链路（服务端广播 → 桌面引擎 events）。
+// T1.6 真连集成测试对端探针（node）：加入 board 房间（首入者自举 Host）、抓取
+// board:ops 广播，并回发一条 op 验证反向链路（服务端广播 → 桌面引擎 events）。
+// M3 默认无权限（2026-10）：后加入的桌面端默认只读——本探针（Host）在观测到
+// 对端入房（participants.joined 增量）后授权其写入（interactive:grantControl）。
 //
 // 用法：node wb_realtime_probe.mjs <realtimeDir> <endpoint> <boardId> <timeoutMs>
 // 输出（stdout 每行一条 JSON；诊断走 stderr）：
@@ -53,6 +55,20 @@ if (socketFactory !== null) {
       }
       process.stdout.write(JSON.stringify({ ready: true }) + NL);
     });
+  });
+  // M3 默认无权限（2026-10）：观测到后加入成员（桌面端）→ 授权其写入；
+  // 桌面端等 grantedWrite 折叠后才落定提交（避免首批 op 被服务端拒绝）。
+  socket.on('board:participants', (payload) => {
+    const joined = Array.isArray(payload && payload.joined) ? payload.joined : [];
+    for (const member of joined) {
+      const targetId = member && member.userId;
+      if (typeof targetId !== 'string' || targetId.length === 0) continue;
+      socket.emit('interactive:grantControl', { userId: targetId }, (ack) => {
+        if (!ack || ack.ok !== true) {
+          process.stderr.write('probe grantControl rejected: ' + JSON.stringify(ack ?? null) + NL);
+        }
+      });
+    }
   });
   socket.on('board:ops', (ops, meta) => {
     // 回发一条 op：验证反向（服务端 → 桌面引擎 events drain）链路。

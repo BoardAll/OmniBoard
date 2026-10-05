@@ -250,8 +250,14 @@ class _WbJsSocketIoBridge implements WbSocketIoBridge {
   @override
   void on(String event, WbSocketIoEventHandler handler) {
     final socket = _requireSocket('on');
-    final JSFunction<Function> jsHandler = (([JSAny? payload]) {
-      handler(payload.dartify());
+    final JSFunction<Function> jsHandler = (([JSAny? first, JSAny? second]) {
+      if (second != null) {
+        // 多实参事件（仅 `board:ops` 的 `(ops, meta)` 两参发射）：按
+        // 2 元素列表透传；单实参事件（其余全部）保持原载荷形状不变。
+        handler(<Object?>[first.dartify(), second.dartify()]);
+      } else {
+        handler(first.dartify());
+      }
     }).toJS;
     (_handlers[event] ??= <JSFunction<Function>>[]).add(jsHandler);
     socket.on(event, jsHandler);

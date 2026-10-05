@@ -1,13 +1,19 @@
-// tests/e2e 「双端互见」M1 场景编排（骨架版；对应《互动白板实时协同开发计划》
+// tests/e2e 「双端互见」场景编排（M1 骨架 + M2/M3 契约里程碑；对应《互动白板实时协同开发计划》
 // §4「e2e：tests/e2e 新增"双端互见"场景（可复用 fixture 板）」与门 G1）。
 //
 // 场景步骤 → 可执行段映射：
 //   server  : 启动 realtime（默认 :8790）并等 /healthz；
 //   desktop : 桌面端参与者 ×2 —— 双进程真连等价物（复用 T1.6 资产
 //             apps/desktop/test/integration/ffi_sync_dual_process_test.dart）：
-//             接收端 join 确认 → 发送端落定提交插入 op → 接收端断言送达
-//             （经真实服务端全程闭环；单进程引擎为进程级单例，故用两进程等价）；
-//   ops     : 互见 op 矩阵（插入/移动/删除/文本终态）+ 断线重连恢复
+//             接收端 join 确认（首入自举 Host）→ 发送端入房后经接收端授权写入
+//             （M3 默认无权限）→ 发送端落定提交插入 op → 接收端断言送达
+//             → 发送端发一条命名空间无关的 ink 预览帧（M3 D3-0 预览流）
+//             → 接收端收集 + 写确认信号（经真实服务端全程闭环；
+//             单进程引擎为进程级单例，故用两进程等价）；
+//   ops     : 互见 op 矩阵（插入/移动/删除/文本终态）+ M2 契约里程碑
+//             （presence:preview 转发 / 软锁 授予-拒绝-释放-重获-续期 / 断线重连精确差分量）
+//             + M3 契约里程碑（interactive 事件族 / 角色矩阵拒绝 / checkpoint 快照；
+//             角色经 WB_JWT_SECRET 注入，阈值经 WB_CHECKPOINT_OP_THRESHOLD 注入小值）
 //             （契约级探针 support/wb_collab_scenario_probe.mjs，同一真实服务）；
 //   web     : Web 参与者 —— W1 浏览器真连冒烟（复用 T1.8 资产
 //             apps/web/test/realtime_web_smoke_test.dart：成员/状态互见；
@@ -21,7 +27,9 @@
 // 环境变量：
 //   WB_E2E_PORT     覆盖 realtime 端口（默认 8790）；
 //   WB_FLUTTER_BAT  覆盖 flutter 可执行路径（默认本机 SDK 路径）；
-//   CHROME_EXECUTABLE / 常见 Chrome/Edge 安装路径 用于 web 段。
+//   CHROME_EXECUTABLE / 常见 Chrome/Edge 安装路径 用于 web 段；
+//   WB_JWT_SECRET / WB_CHECKPOINT_OP_THRESHOLD  M3 探针 JWT 密钥与 checkpoint 阈值
+//     （默认 e2e-m3-secret / 6；server 与 probe 两端一致注入，本脚本自动处理）。
 // 退出码：0 = 全部执行段 PASS（SKIP 段计入但不算失败）；1 = 任意段 FAIL / 编排错误。
 // 前置：services/realtime 已 `npm run build`；desktop 段需已构建 wb_core.dll
 // （tools/scripts/build_cpp.ps1）；Node ≥ 18。
@@ -43,11 +51,18 @@ const flutterBat =
 const port = process.env.WB_E2E_PORT ?? '8790';
 const endpoint = 'http://127.0.0.1:' + port;
 const stamp = String(Date.now());
+// M3 契约探针：JWT 角色注入密钥 + checkpoint 触发阈值（server 与 probe 两端一致；小值加速触发）。
+const authSecret = process.env.WB_JWT_SECRET ?? 'e2e-m3-secret';
+const checkpointThreshold = process.env.WB_CHECKPOINT_OP_THRESHOLD ?? '6';
 
 const SEGMENTS = new Map([
   ['server', '启动 realtime（:' + port + '）并等 /healthz'],
-  ['desktop', '桌面参与者 ×2：双进程真连（T1.6 等价物，插入 op 端到端）'],
-  ['ops', '互见 op 矩阵（插入/移动/删除/文本终态）+ 断线重连恢复（契约探针）'],
+  ['desktop', '桌面参与者 ×2：双进程真连（T1.6 等价物，插入 op + ink 预览端到端）'],
+  [
+    'ops',
+    '互见 op 矩阵 + M2 契约里程碑（presence / 软锁 / 断线差分量）'
+      + ' + M3 契约里程碑（interactive / 角色矩阵拒绝 / checkpoint；JWT 角色注入）（契约探针）',
+  ],
   ['web', 'Web 参与者：W1 浏览器真连冒烟（T1.8；缺浏览器 = SKIP）'],
 ]);
 
@@ -66,6 +81,7 @@ const selected = onlyArg
 const children = [];
 const results = [];
 let flagPath = null;
+let previewFlagPath = null;
 
 const log = (msg) => console.log('[scenario] ' + msg);
 
@@ -185,7 +201,13 @@ async function startServer() {
   log('server: node dist/server.js（PORT=' + port + '）');
   const server = spawn('node', ['dist/server.js'], {
     cwd: realtimeDir,
-    env: { ...process.env, PORT: port },
+    env: {
+      ...process.env,
+      PORT: port,
+      // M3：探针角色注入与 checkpoint 阈值（与 probe 端一致；非 production 下无 token 仍匿名回落）。
+      WB_JWT_SECRET: authSecret,
+      WB_CHECKPOINT_OP_THRESHOLD: checkpointThreshold,
+    },
     shell: true,
     windowsHide: true,
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -203,12 +225,15 @@ async function runDesktop() {
   const elementId = 'e2e-m1-el-' + stamp;
   flagPath = join(desktopDir, '.dart_tool', 'wb_m1_scenario_' + stamp + '.flag');
   rmSync(flagPath, { force: true });
+  previewFlagPath = join(desktopDir, '.dart_tool', 'wb_m1_scenario_' + stamp + '.preview.flag');
+  rmSync(previewFlagPath, { force: true });
   const baseEnv = {
     WB_REALTIME_E2E: '1',
     WB_REQUIRE_CORE_DLL: '1',
     WB_DUAL_BOARD: boardId,
     WB_DUAL_ELEMENT: elementId,
     WB_DUAL_FLAG: flagPath,
+    WB_DUAL_PREVIEW_FLAG: previewFlagPath,
     WB_DUAL_ENDPOINT: endpoint,
   };
 
@@ -244,8 +269,14 @@ async function runOps() {
   const boardId = 'e2e-m1-ops-' + stamp;
   log('ops: 运行契约级场景探针（board=' + boardId + '）');
   const probe = track(
-    spawn('node', [probeScript, realtimeDir, endpoint, boardId, '60000'], {
+    spawn('node', [probeScript, realtimeDir, endpoint, boardId, '120000'], {
       cwd: repo,
+      env: {
+        ...process.env,
+        // M3：与 server 端一致的 JWT 密钥与 checkpoint 阈值（探针角色注入 + 阈值触发断言）。
+        WB_JWT_SECRET: authSecret,
+        WB_CHECKPOINT_OP_THRESHOLD: checkpointThreshold,
+      },
       shell: true,
       windowsHide: true,
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -275,7 +306,7 @@ async function runOps() {
     stderrTail += chunk;
     process.stderr.write('[ops-probe] ' + chunk);
   });
-  const exit = await waitExit(probe, 120000);
+  const exit = await waitExit(probe, 150000);
   if (!exit.exited || exit.code !== 0 || !finalPayload || finalPayload.ok !== true) {
     throw new Error(
       'ops: 探针未通过（exited=' + exit.exited + ' code=' + exit.code + '）'
@@ -329,7 +360,7 @@ async function runSegment(name, fn) {
 }
 
 function printSegments() {
-  console.log('M1「双端互见」场景段：');
+  console.log('双端互见场景段（M1 + M2 + M3 契约）：');
   for (const [name, desc] of SEGMENTS) {
     console.log('  ' + name.padEnd(8) + ' ' + desc);
   }
@@ -337,7 +368,7 @@ function printSegments() {
 
 function summarize() {
   console.log('');
-  console.log('---- M1「双端互见」场景结果（' + new Date().toISOString().slice(0, 10) + '）----');
+  console.log('---- 双端互见场景结果（M1 + M2 + M3，' + new Date().toISOString().slice(0, 10) + '）----');
   for (const r of results) {
     console.log('[' + r.status + '] ' + r.segment.padEnd(8) + ' ' + r.note);
   }
@@ -378,7 +409,7 @@ async function main() {
   if (selected.includes('desktop')) {
     await runSegment('desktop', async () => {
       await runDesktop();
-      return 'A 发 B 收：插入 op 经真实服务端全程闭环';
+      return 'A 发 B 收：插入 op + ink 预览帧经真实服务端全程闭环';
     });
   }
   if (selected.includes('ops')) {
@@ -402,6 +433,9 @@ try {
   }
   if (flagPath) {
     rmSync(flagPath, { force: true });
+  }
+  if (previewFlagPath) {
+    rmSync(previewFlagPath, { force: true });
   }
   log('cleanup done');
 }

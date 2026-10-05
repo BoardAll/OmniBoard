@@ -826,7 +826,7 @@ WB_API const char* wb_sync_set_offline(int offline) {
 }
 
 // ---------------------------------------------------------------------------
-// M1 collaboration data plane — thin forwards, see wb.h (Sync / CRDT).
+// M1/M2 collaboration data plane — thin forwards, see wb.h (Sync / CRDT).
 // ---------------------------------------------------------------------------
 WB_API const char* wb_sync_join(const char* boardId, const char* pageId) {
   nlohmann::json args;
@@ -859,6 +859,22 @@ WB_API const char* wb_sync_send_preview(const char* previewJson) {
     args["preview"] = nlohmann::json::parse(previewJson, nullptr, false);
   }
   return Handoff(Call("sync", "sendPreview", args));
+}
+
+WB_API const char* wb_sync_lock(const char* argsJson) {
+  nlohmann::json args;
+  if (argsJson != nullptr && *argsJson != '\0') {
+    args = nlohmann::json::parse(argsJson, nullptr, false);
+  }
+  return Handoff(Call("sync", "lock", args));
+}
+
+WB_API const char* wb_sync_interactive(const char* argsJson) {
+  nlohmann::json args;
+  if (argsJson != nullptr && *argsJson != '\0') {
+    args = nlohmann::json::parse(argsJson, nullptr, false);
+  }
+  return Handoff(Call("sync", "interactive", args));
 }
 
 WB_API const char* wb_crdt_create(const char* docId, const char* actor) {

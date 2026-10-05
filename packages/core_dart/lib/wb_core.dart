@@ -7,6 +7,7 @@
 /// 拉入 `dart:js_interop`），Flutter Web 应用请显式 import。
 library;
 
+export 'engine.dart';
 export 'wb_core_bindings.dart';
 export 'wb_core_ffi.dart';
 

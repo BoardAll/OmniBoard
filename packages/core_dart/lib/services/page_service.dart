@@ -1,17 +1,17 @@
+import '../engine.dart';
 import '../models/page.dart';
 import '../utils/json_codec.dart';
-import '../wb_core_ffi.dart';
 
 /// 页面服务：列表 / 增删改 / 排序 / 背景 / 锁定隐藏。
 class WbPageService {
   const WbPageService(this.ffi);
 
-  final WbCoreFfi ffi;
+  final WbEngineCaller ffi;
 
   /// 页面列表（按白板 boardId）。
   List<WbPage> list(String boardId) {
     final WbResponse response =
-        WbResponse.parse(ffi.call1(ffi.bindings.wbPageList, boardId));
+        WbResponse.parse(ffi.call1('wb_page_list', boardId));
     final Map<String, dynamic> result = response.requireResult();
     final List<Map<String, dynamic>> pagesList =
         WbJsonCodec.extractList(result['pages'] ?? result['items']);
@@ -22,7 +22,7 @@ class WbPageService {
   WbPage create(String boardId, [Map<String, dynamic> options = const {}]) {
     final WbResponse response = WbResponse.parse(
       ffi.call2(
-        ffi.bindings.wbPageCreate,
+        'wb_page_create',
         boardId,
         WbJsonCodec.encode(options),
       ),
@@ -33,21 +33,21 @@ class WbPageService {
   /// 复制页面。
   WbPage duplicate(String pageId) {
     final WbResponse response =
-        WbResponse.parse(ffi.call1(ffi.bindings.wbPageDuplicate, pageId));
+        WbResponse.parse(ffi.call1('wb_page_duplicate', pageId));
     return WbPage.fromJson(WbJsonCodec.unwrap(response.requireResult(), 'page'));
   }
 
   /// 删除页面（返回删除结果 JSON）。
   Map<String, dynamic> delete(String pageId) {
     final WbResponse response =
-        WbResponse.parse(ffi.call1(ffi.bindings.wbPageDelete, pageId));
+        WbResponse.parse(ffi.call1('wb_page_delete', pageId));
     return response.requireResult();
   }
 
   /// 移动页面到新索引。
   Map<String, dynamic> move(String pageId, int newIndex) {
     final WbResponse response = WbResponse.parse(
-      ffi.call1Int(ffi.bindings.wbPageMove, pageId, newIndex),
+      ffi.call1Int('wb_page_move', pageId, newIndex),
     );
     return response.requireResult();
   }
@@ -55,7 +55,7 @@ class WbPageService {
   /// 重命名页面。
   WbPage rename(String pageId, String name) {
     final WbResponse response = WbResponse.parse(
-      ffi.call2(ffi.bindings.wbPageRename, pageId, name),
+      ffi.call2('wb_page_rename', pageId, name),
     );
     return WbPage.fromJson(WbJsonCodec.unwrap(response.requireResult(), 'page'));
   }
@@ -67,7 +67,7 @@ class WbPageService {
   ) {
     final WbResponse response = WbResponse.parse(
       ffi.call2(
-        ffi.bindings.wbPageSetBackground,
+        'wb_page_set_background',
         pageId,
         WbJsonCodec.encode(background),
       ),
@@ -78,7 +78,7 @@ class WbPageService {
   /// 锁定 / 解锁页面。
   Map<String, dynamic> lock(String pageId, bool locked) {
     final WbResponse response = WbResponse.parse(
-      ffi.call1Int(ffi.bindings.wbPageLock, pageId, locked ? 1 : 0),
+      ffi.call1Int('wb_page_lock', pageId, locked ? 1 : 0),
     );
     return response.requireResult();
   }
@@ -86,7 +86,7 @@ class WbPageService {
   /// 隐藏 / 显示页面。
   Map<String, dynamic> hide(String pageId, bool hidden) {
     final WbResponse response = WbResponse.parse(
-      ffi.call1Int(ffi.bindings.wbPageHide, pageId, hidden ? 1 : 0),
+      ffi.call1Int('wb_page_hide', pageId, hidden ? 1 : 0),
     );
     return response.requireResult();
   }

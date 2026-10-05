@@ -13,6 +13,9 @@
 //   《MCP_Server详细设计》§11.10   (mcp server / session / tools / resources / prompts / audit)
 //   《互动白板预留接口设计》M10.1   (sync placeholders)
 //   《互动白板实时协同设计文档》§8.2/§8.3 (M1 collaboration data plane forwards)
+//   《互动白板实时协同设计文档》§5.6/§6   (M2 lock forward, wb_sync_lock)
+//   《互动白板实时协同设计文档》§5.10/§6 (M3 interactive forward,
+//                                          wb_sync_interactive)
 //
 // Conventions:
 //   - All inputs/outputs are UTF-8 JSON strings unless noted otherwise.
@@ -228,6 +231,20 @@ WB_API const char* wb_sync_send_operation(const char* opJson);
 WB_API const char* wb_sync_flush();
 WB_API const char* wb_sync_events();
 WB_API const char* wb_sync_send_preview(const char* previewJson);
+
+// M2 data plane — `lock` forward into the same "sync" domain
+// (互动白板实时协同设计文档 §5.6/§6, decision D2-C): args {action, elementId},
+// result {requested}; the async outcome surfaces via `events`
+// (room.lockAcks / room.locks). Same UTF-8 JSON envelope + wb_free contract.
+WB_API const char* wb_sync_lock(const char* argsJson);
+
+// M3 interactive forward, wb_sync_interactive (互动白板实时协同设计文档
+// §5.10/§6, T3.2): args {action, userId?, targetUserId?} over the closed
+// action set raiseHand / lowerHand / startPresent / stopPresent /
+// grantControl / revokeControl / removeUser / follow / unfollow; result
+// {requested}; the async outcome surfaces via `events` (interactiveAcks).
+// Same UTF-8 JSON envelope + wb_free contract.
+WB_API const char* wb_sync_interactive(const char* argsJson);
 
 // ---------------------------------------------------------------------------
 // CRDT (互动白板实时协同设计文档 §8.3, domain "crdt")

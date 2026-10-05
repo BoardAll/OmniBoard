@@ -1,12 +1,13 @@
-// tests/unit/ffi/ffi_collab_symbols_test.cpp — M1 collaboration data-plane
-// symbols (7 thin forwards; decision D-A). Tags: [ffi]
+// tests/unit/ffi/ffi_collab_symbols_test.cpp — M1/M2/M3 collaboration
+// data-plane symbols (8 thin forwards; decision D-A; M2 T2d appends
+// `wb_sync_lock`; M3 T3.2/F3 appends `wb_sync_interactive`).
+// Tags: [ffi]
 //
-// Contract level only. The five sync symbols are asserted envelope-wise so
-// this suite stays green while the sync-domain implementation lands in
-// parallel (unimplemented op -> NotFound, implemented op -> InvalidArgument
-// or a real result; every assertion below holds in both worlds). The two
-// crdt symbols target the already-frozen crdt domain, which additionally
-// pins the FFI argument routing (docId / operation keys).
+// Contract level only. The six sync symbols are asserted envelope-wise; the
+// M2 lock forward additionally pins the offline degradation (no transport ->
+// {requested:false}, never an error). The two crdt symbols target the
+// already-frozen crdt domain, which additionally pins the FFI argument
+// routing (docId / operation keys).
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -49,6 +50,31 @@ TEST_CASE("sync collaboration symbols return JSON envelopes", "[ffi]") {
   RequireEnvelope(TakeAndFree(wb_sync_flush()));
   RequireEnvelope(TakeAndFree(wb_sync_events()));
   RequireEnvelope(TakeAndFree(wb_sync_send_preview("{\"kind\":\"transform\"}")));
+  RequireEnvelope(TakeAndFree(
+      wb_sync_lock("{\"action\":\"acquire\",\"elementId\":\"ffi-bridge-element\"}")));
+  RequireEnvelope(
+      TakeAndFree(wb_sync_interactive("{\"action\":\"raiseHand\"}")));
+}
+
+TEST_CASE("wb_sync_lock degrades offline to requested:false", "[ffi]") {
+  // M2 T2d: no connection is made in this process, so the lock request is
+  // not forwarded; the result stays a quiet {requested:false} envelope
+  // (never Conflict), with the async outcome reserved for wb_sync_events().
+  const std::string lock = TakeAndFree(
+      wb_sync_lock("{\"action\":\"acquire\",\"elementId\":\"ffi-bridge-element\"}"));
+  REQUIRE(Contains(lock, "\"ok\":true"));
+  REQUIRE(Contains(lock, "\"requested\":false"));
+}
+
+TEST_CASE("wb_sync_interactive degrades offline to requested:false", "[ffi]") {
+  // M3 T3.2/F3: no connection is made in this process, so the interactive
+  // request is not forwarded; the result stays a quiet {requested:false}
+  // envelope (never Conflict), with the async ack reserved for
+  // wb_sync_events() (interactiveAcks).
+  const std::string request =
+      TakeAndFree(wb_sync_interactive("{\"action\":\"raiseHand\"}"));
+  REQUIRE(Contains(request, "\"ok\":true"));
+  REQUIRE(Contains(request, "\"requested\":false"));
 }
 
 TEST_CASE("crdt collaboration symbols return JSON envelopes", "[ffi]") {
@@ -58,13 +84,21 @@ TEST_CASE("crdt collaboration symbols return JSON envelopes", "[ffi]") {
 }
 
 TEST_CASE("sync collaboration symbols reject null or malformed input", "[ffi]") {
-  // Both worlds agree here: NotFound while the op is unimplemented,
-  // InvalidArgument once it is (missing boardId / payload), never ok:true.
+  // Malformed/null input is rejected with InvalidArgument (missing
+  // boardId / payload / lock / interactive action fields), never ok:true.
   REQUIRE(Contains(TakeAndFree(wb_sync_join(nullptr, nullptr)), "\"ok\":false"));
   REQUIRE(Contains(TakeAndFree(wb_sync_send_operation(nullptr)), "\"ok\":false"));
   REQUIRE(Contains(TakeAndFree(wb_sync_send_operation("{not-json")), "\"ok\":false"));
   REQUIRE(Contains(TakeAndFree(wb_sync_send_preview(nullptr)), "\"ok\":false"));
   REQUIRE(Contains(TakeAndFree(wb_sync_send_preview("{not-json")), "\"ok\":false"));
+  REQUIRE(Contains(TakeAndFree(wb_sync_lock(nullptr)), "\"ok\":false"));
+  REQUIRE(Contains(TakeAndFree(wb_sync_lock("{not-json")), "\"ok\":false"));
+  REQUIRE(Contains(TakeAndFree(wb_sync_interactive(nullptr)), "\"ok\":false"));
+  REQUIRE(
+      Contains(TakeAndFree(wb_sync_interactive("{not-json")), "\"ok\":false"));
+  REQUIRE(Contains(
+      TakeAndFree(wb_sync_interactive("{\"action\":\"steal\"}")),
+      "\"ok\":false"));
 }
 
 TEST_CASE("crdt apply_local routes into the frozen crdt domain", "[ffi]") {

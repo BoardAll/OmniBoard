@@ -1,5 +1,5 @@
 /// 编辑页接线冒烟（Wave 3 协调者集成）：命令面板接棒 / 透明批注入口 /
-/// 快速创建 / 长按空白画布弹临时圆盘。
+/// 快速创建 / 长按空白画布弹临时圆盘 / M2 在场层挂载冒烟。
 library;
 
 import 'package:flutter/material.dart';
@@ -16,6 +16,7 @@ import 'package:whiteboard_desktop/widgets/annotation/annotation_controller.dart
 import 'package:whiteboard_desktop/widgets/annotation/annotation_exit_dialog.dart';
 import 'package:whiteboard_desktop/widgets/annotation/annotation_overlay.dart';
 import 'package:whiteboard_desktop/widgets/annotation/annotation_toolbar.dart';
+import 'package:whiteboard_desktop/widgets/collab/remote_cursors.dart';
 import 'package:whiteboard_desktop/widgets/command_palette.dart';
 import 'package:whiteboard_desktop/widgets/context_editors/flowchart_editor.dart';
 import 'package:whiteboard_desktop/widgets/guide/help_center.dart';
@@ -282,5 +283,35 @@ void main() {
     ));
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('wb-participants-panel')), findsNothing);
+  });
+
+  testWidgets('协同 UI：编辑页挂载 M2 在场层（IgnorePointer 不拦截画布交互）',
+      (WidgetTester tester) async {
+    await _pumpEditor(tester);
+
+    final Finder overlay = find.byType(WbRemoteCursorsOverlay);
+    expect(overlay, findsOneWidget);
+    expect(
+      tester
+          .widget<IgnorePointer>(
+            find.descendant(of: overlay, matching: find.byType(IgnorePointer)),
+          )
+          .ignoring,
+      isTrue,
+      reason: '在场层不拦截指针事件',
+    );
+
+    // 覆盖层存在时长按画布仍可达（事件穿透 → 临时圆盘弹出）。
+    final TestGesture gesture =
+        await tester.startGesture(const Offset(760, 500));
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pump();
+    expect(find.byType(RadialToolbar), findsNWidgets(2));
+
+    await gesture.up();
+    await tester.pump();
+    await tester.tapAt(const Offset(760, 100));
+    await tester.pumpAndSettle();
+    expect(find.byType(RadialToolbar), findsOneWidget);
   });
 }

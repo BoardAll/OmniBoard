@@ -1,5 +1,5 @@
+import '../engine.dart';
 import '../utils/json_codec.dart';
-import '../wb_core_ffi.dart';
 import 'page_service.dart';
 
 /// 背景预设描述（对齐 C++ background 域 kPresets）。
@@ -52,7 +52,7 @@ class WbBackgroundPreset {
 class WbBackgroundService {
   const WbBackgroundService(this.ffi, [this._pages]);
 
-  final WbCoreFfi ffi;
+  final WbEngineCaller ffi;
   final WbPageService? _pages;
 
   WbPageService get _pageService => _pages ?? WbPageService(ffi);
@@ -121,7 +121,7 @@ class WbBackgroundService {
     }
     final WbResponse response = WbResponse.parse(
       ffi.call2(
-        ffi.bindings.wbPageSetBackground,
+        'wb_page_set_background',
         pageId,
         WbJsonCodec.encode(resolved),
       ),

@@ -454,6 +454,53 @@ void main() {
       expect(c.elements, isEmpty);
       expect(c.canUndo, isFalse);
     });
+
+    test('canEdit=false：执行被拒（统一文案）且不落地；恢复后撤销仍受门禁', () async {
+      final WbCanvasController c = _canvas();
+      bool editable = false;
+      final WbAiCanvasExecutor exec = WbAiCanvasExecutor(
+        canvas: c,
+        canEdit: () => editable,
+      );
+
+      // 无权限：执行被拒（统一文案），画布零改动。
+      final Map<String, dynamic> denied = await exec.execute(
+        _call(WbBoardTools.elementCreate, <String, dynamic>{
+          'elements': <Map<String, dynamic>>[
+            <String, dynamic>{
+              'type': 'note',
+              'position': <String, dynamic>{'x': 10, 'y': 20},
+            },
+          ],
+        }),
+      );
+      expect(denied['ok'], isFalse);
+      expect('${denied['error']}', contains('无编辑权限'));
+      expect(c.elements, isEmpty);
+      expect(c.canUndo, isFalse);
+
+      // 恢复权限：同一探针翻转后执行成功。
+      editable = true;
+      final AiToolCall call = _call(
+        WbBoardTools.elementCreate,
+        <String, dynamic>{
+          'elements': <Map<String, dynamic>>[
+            <String, dynamic>{
+              'type': 'note',
+              'position': <String, dynamic>{'x': 10, 'y': 20},
+            },
+          ],
+        },
+        id: 'call_2',
+      );
+      expect((await exec.execute(call))['ok'], isTrue);
+      expect(c.elements.length, 1);
+
+      // 权限再次收回：执行卡「撤销」不落地（元素保留）。
+      editable = false;
+      exec.undo(call);
+      expect(c.elements.length, 1);
+    });
   });
 
   // -------------------------------------------------------------------------

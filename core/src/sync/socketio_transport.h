@@ -1,6 +1,7 @@
 #pragma once
 
-// sync/socketio_transport.h — Socket.IO (sioxx) transport (M1 T1.1).
+// sync/socketio_transport.h — Socket.IO (sioxx) transport
+// (M1 T1.1 / M2 D2-C / M3 T3.2+T3.5).
 // Owns: core/src/sync.
 //
 // Declaration only: sioxx/Boost headers stay in the .cpp so callers never
@@ -37,10 +38,13 @@ class SocketIOTransport : public Transport {
   bool connectBoard(const std::string& url, const std::string& token,
                     const std::string& boardId,
                     const std::string& clientVersion) override;
-  bool joinBoard(const std::string& boardId,
-                 const std::string& pageId) override;
+  bool joinBoard(const std::string& boardId, const std::string& pageId,
+                 const nlohmann::json& lastSeenVersion) override;
   bool sendReliable(const nlohmann::json& op) override;
   bool sendPreview(const nlohmann::json& payload) override;
+  bool sendLock(const nlohmann::json& payload) override;
+  bool sendInteractive(const nlohmann::json& payload) override;
+  bool sendCheckpoint(const nlohmann::json& payload) override;
   std::vector<InboundEvent> drainInbound() override;
   std::vector<nlohmann::json> drainFailures() override;
   int latencyMs() const override;

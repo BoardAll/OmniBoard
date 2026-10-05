@@ -51,7 +51,7 @@ void main() {
     // 测试侧三源：绑定到应用级文件服务（应用自身不会重复绑定）。
     final WbFfiService ffi = _demoFfi();
     final WbBoardState boardState = WbBoardState(ffi: ffi);
-    final WbPageState pageState = WbPageState(ffi: ffi);
+    final WbPageState pageState = WbPageState(ops: WbFfiPageOps(ffi));
     canvas = WbCanvasController();
     boardState.open('board-1', name: '关窗测试');
     pageState.attach(boardState.board!);

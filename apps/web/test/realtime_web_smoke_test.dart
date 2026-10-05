@@ -9,7 +9,7 @@
 ///
 /// 覆盖断言（W1 层：成员 / 状态 / presence 元数据；不发画布 op）：
 /// - 连接 + `board:session` 单播（匿名 dev 回落 `anon-*`）；
-/// - `joinBoard` → `board:joined` 快照含自身（role/mode）；
+/// - `joinBoard` → `board:joined` 快照含自身（role/mode；空房首位加入自举 Host）；
 /// - 双连接互见：A / B 均收到对方加入增量（`board:participants`）；
 /// - B `leave()` → A 收到 left 增量。
 @TestOn('browser')
@@ -76,7 +76,8 @@ void main() {
         reason: 'A 等待 board:joined 快照',
       );
       expect(a.participants.single.userId, a.userId);
-      expect(a.role, 'Participant');
+      // 房主自举（§5.14）：空房首位加入的可写角色（匿名回落 Participant）自动升 Host。
+      expect(a.role, 'Host');
       expect(a.boardId, boardId);
 
       // B：连接 → 加入同一房间 → 双方互见（joined 增量）。

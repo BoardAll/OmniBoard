@@ -27,6 +27,7 @@ import '../services/theme_service.dart';
 import '../state/ai_state.dart';
 import '../state/annotation_state.dart';
 import '../state/board_state.dart';
+import '../state/follow_controller.dart';
 import '../state/page_state.dart';
 import '../state/selection_state.dart';
 import '../state/theme_state.dart';
@@ -34,14 +35,17 @@ import '../widgets/ai_panel.dart';
 import '../widgets/annotation/annotation_controller.dart';
 import '../widgets/annotation/annotation_layer.dart';
 import '../widgets/canvas/canvas_controller.dart';
+import '../widgets/canvas/canvas_image_cache.dart';
 import '../widgets/canvas/canvas_model.dart';
 import '../widgets/canvas/element_size_dialog.dart';
+import '../widgets/canvas/image_decoder.dart';
 import '../widgets/canvas/professional_painter.dart';
 import '../widgets/canvas_view.dart';
 import '../widgets/collab/collab_dialogs.dart';
 import '../widgets/collab/collab_entry_button.dart';
 import '../widgets/collab/participants_button.dart';
 import '../widgets/collab/participants_panel.dart';
+import '../widgets/collab/remote_cursors.dart';
 import '../widgets/command_palette.dart';
 import '../widgets/context_editors/quick_create.dart';
 import '../widgets/floating_toolbar.dart';
@@ -94,6 +98,8 @@ class _BoardEditPageState extends State<BoardEditPage> {
   late final WbBoardFileService? _fileService;
   late final WbCollabService _collab;
   late final WbCanvasController _canvas;
+  late final WbRemotePresenceStore _presence;
+  late final WbFollowController _follow;
   late final WbAiState _aiState;
   late final WbAiCanvasExecutor _aiExecutor;
   late final WbTransparentOverlayService _overlay;
@@ -138,6 +144,9 @@ class _BoardEditPageState extends State<BoardEditPage> {
     _collab = context.read<WbCollabService>();
     _canvas = WbCanvasController(
       selection: context.read<WbSelectionState>(),
+      // 图片解码：桌面注入本地文件解码器（共享包缓存平台中立，未注入
+      // 时解码失败静默）。
+      imageCache: WbCanvasImageCache(decoder: wbDecodeImageFile),
       // 图片工具：系统文件选择对话框（问题 2）。
       imagePicker: _pickImageFile,
       // 双击专业元素 → 独立编辑页（问题 6）。
@@ -148,15 +157,56 @@ class _BoardEditPageState extends State<BoardEditPage> {
     _canvas.addListener(_onCanvasChanged);
 
     // 协同装配：画布出口（落定提交 → op）/ 入口（远端元素 upsert / 删除）
-    // 与防回发谓词（远端应用期间跳过出口）。
+    // 与防回发谓词（远端应用期间跳过出口）。远端元素 op 按页路由：先确保
+    // 目标页在本地列表存在（幂等，防「幽灵页」），再写入对应页文档。
     _canvas.onLocalCommit = _collab.handleCanvasCommit;
     _canvas.isRemoteApplying = () => _collab.isApplyingRemote;
-    _collab.onRemoteElement = _canvas.applyRemoteElement;
+    _collab.onRemoteElement = (WbCanvasElement element, {String? pageId}) {
+      final String? target = pageId;
+      if (target != null && target.isNotEmpty) {
+        _pageState.ensureRemotePage(target);
+      }
+      _canvas.applyRemoteElement(element, pageId: target);
+    };
     _collab.onRemoteRemove = _canvas.applyRemoteRemove;
+    // 页结构同步装配：本地页变更（新建 / 删除 / 重命名 / 排序）→ `pg:` op；
+    // 远端页 op → 页面状态应用（应用路径不经过出口，防空回发）。
+    _pageState.onPageOp = _collab.handlePageOp;
+    _collab.onRemotePageOp = _pageState.applyRemotePageOp;
+    // M2 高频预览出口（笔迹 / 变换 / 光标 / 选区 → sendPreview）。
+    _canvas.onInkPreview = _collab.sendPreview;
+    _canvas.onTransformPreview = _collab.sendPreview;
+    _canvas.onCursorMoved = _collab.sendPreview;
+    _canvas.onSelectionChanged = _collab.sendPreview;
+    // M2 入口装配：远端预览批次（画布鬼影 + 在场光标 / 选区）、软锁
+    // 快照刷新与申请被拒兜底。
+    _presence = WbRemotePresenceStore();
+    _collab.onRemotePreviews = _onRemotePreviews;
+    _collab.onLockDenied = _onLockDenied;
+    _collab.addListener(_onCollabChanged);
+    // M2 软锁进出（文字编辑 / 专业编辑页 / 尺寸对话框）。
+    _canvas.onEditLockRequest = _collab.acquireLock;
+    _canvas.onEditLockRelease = _collab.releaseLock;
+    _canvas.onLockedElementTap = _onLockedElementTap;
+    // M3 跟随 / 演示 / 权限收窄（T3.2）：跟随控制器 + 画布视口 / 切页
+    // 出口 + 互动拒绝轻提示（跟随帧消费见 [_onRemotePreviews]）。
+    _follow = WbFollowController(
+      collab: _collab,
+      canvas: _canvas,
+      pageState: _pageState,
+    );
+    _canvas.onViewportChanged = _onCanvasViewport;
+    _canvas.onPagePreview = _onCanvasPagePreview;
+    _canvas.onUserViewportGesture = _follow.handleUserViewportGesture;
+    _collab.onInteractiveError = _onInteractiveError;
     // AI 工具调用 → 画布落地执行器：面板执行卡片「执行」真正编辑白板
-    // （element_create / element_update / element_move / element_delete）。
+    // （element_create / element_update / element_move / element_delete）；
+    // M3 只读收窄：注入权限探针，无编辑权限时执行 / 撤销不落地。
     _aiState = context.read<WbAiState>();
-    _aiExecutor = WbAiCanvasExecutor(canvas: _canvas);
+    _aiExecutor = WbAiCanvasExecutor(
+      canvas: _canvas,
+      canEdit: () => _collab.canEdit,
+    );
     _aiState.bindExecutor(_aiExecutor);
     _overlay = WbTransparentOverlayService();
     _annotation = WbAnnotationController(
@@ -187,9 +237,15 @@ class _BoardEditPageState extends State<BoardEditPage> {
     _backdrop.dispose();
     _overlay.dispose();
     _fileService?.unbind();
+    _collab.removeListener(_onCollabChanged);
     unawaited(_collab.stop());
+    _collab.onInteractiveError = null;
+    _follow.dispose();
     _canvas.removeListener(_onCanvasChanged);
     _canvas.dispose();
+    // 注入的图片缓存由本页持有并释放（controller 不接管外部缓存）。
+    _canvas.imageCache.dispose();
+    _presence.dispose();
     super.dispose();
   }
 
@@ -229,7 +285,11 @@ class _BoardEditPageState extends State<BoardEditPage> {
   /// 互动白板入口：默认本地；未入房时弹「加入」对话框（输入房间号），
   /// 已在房时弹房间信息（含退出）。两端输入相同房间号即同步。
   Future<void> _openCollabEntry() async {
-    if (_collab.boardId != null && _collab.status != WbSyncStatus.offline) {
+    // 重连预算耗尽（引擎 failed → error / 断连 offline）仍进入房间
+    // 对话框，提供「重新连接」恢复入口。
+    if (_collab.boardId != null &&
+        (_collab.status != WbSyncStatus.offline ||
+            _collab.shouldOfferReconnect)) {
       final bool leave = await showWbCollabRoomDialog(context) ?? false;
       if (leave && mounted) {
         await _collab.stop();
@@ -351,6 +411,8 @@ class _BoardEditPageState extends State<BoardEditPage> {
 
   /// 画布变更：元素数量防抖同步到页面状态（缩略图「N 元素」角标与画布同源）。
   void _onCanvasChanged() {
+    // M2 在场层：页面切换时清空非当前页光标 / 选区（幂等）。
+    _presence.syncPage(_canvas.pageId);
     _elementCountTimer?.cancel();
     _elementCountTimer = Timer(_elementCountSyncDelay, () {
       if (!mounted) {
@@ -358,6 +420,152 @@ class _BoardEditPageState extends State<BoardEditPage> {
       }
       _pageState.setElementCount(_canvas.pageId, _canvas.elements.length);
     });
+  }
+
+  // ---- M2 协同：在场（光标 / 选区）与软锁 -----------------------------------
+
+  /// 远端高频预览批次（引擎 drain）：画布鬼影 + 在场层（光标 / 选区）。
+  void _onRemotePreviews(List<Map<String, dynamic>> previews) {
+    _canvas.applyRemotePreviews(previews);
+    _presence.handlePreviews(previews, pageId: _canvas.pageId);
+    // M3：跟随帧消费（只取被跟随者的 page / viewport 帧）。
+    _follow.handlePreviews(previews);
+  }
+
+  /// 协同状态变化：刷新画布远端锁缓存（锁定渲染 / 命中过滤）；
+  /// M3 权限收窄（canEdit → 画布交互开关）、跟随状态机同步与存续提示
+  /// （recovered 一次性轻提示）也在此汇聚。
+  void _onCollabChanged() {
+    _canvas.refreshRemoteLocks(_collab.remoteLocks);
+    _canvas.setInteractionEnabled(_collab.canEdit);
+    _follow.syncWithRoom(); // 目标离开 / 被移除自动停；present 自动跟随。
+    if (_collab.shouldNotifyRecovered) {
+      _collab.markRecoveredNotified();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          _snack('已从存档恢复');
+        }
+      });
+    }
+  }
+
+  /// 软锁申请被拒（他人持有）：退掉可能误开的文字编辑并提示。
+  ///
+  /// 本地快照闸门为乐观判断；回执拒绝属竞态兜底（同一元素先被他人
+  /// 抢锁，或本地锁快照尚未刷新）。
+  void _onLockDenied(String elementId, String? holderUserId) {
+    _canvas.endTextEditing();
+    _snack('${_lockHolderLabel(holderUserId)}正在编辑该元素，请稍后再试');
+  }
+
+  /// 双击锁定元素（可查看不可编辑）：提示当前持有者。
+  void _onLockedElementTap(WbCanvasElement element) {
+    _snack('${_lockHolderLabel(_canvas.lockHolderOf(element.id))}正在编辑该元素');
+  }
+
+  /// 锁持有者短标签（无真实用户名体系：短 id 尾 8 位 / 其他成员）。
+  String _lockHolderLabel(String? userId) {
+    if (userId == null || userId.isEmpty) {
+      return '其他成员';
+    }
+    final String tail =
+        userId.length <= 8 ? userId : userId.substring(userId.length - 8);
+    return '成员 $tail';
+  }
+
+  // ---- M3 跟随 / 演示 / 互动 -----------------------------------------------
+
+  /// 画布视口变化出口（200ms 节流；M3）：有跟随者或本端为演示者时外发
+  /// `presence:preview`（viewport 帧）；否则丢弃（应用层决定是否发送）。
+  void _onCanvasViewport(Map<String, dynamic> frame) {
+    if (_collab.needsViewportBroadcast) {
+      _collab.sendPreview(frame);
+    }
+  }
+
+  /// 画布切页出口（M3）：先通知跟随控制器区分「程序化切换 / 用户切页」，
+  /// 再按需外发 page 帧（被跟随者 / 演示者角色）。
+  void _onCanvasPagePreview(Map<String, dynamic> frame) {
+    final Object? rawPageId = frame['pageId'];
+    _follow.handleLocalPageChanged(rawPageId is String ? rawPageId : '');
+    if (_collab.needsViewportBroadcast) {
+      _collab.sendPreview(frame);
+    }
+  }
+
+  /// 互动请求被拒（interactiveAcks 失败）：轻提示（reason 中文化）。
+  void _onInteractiveError(String action, String reason) {
+    _snack('互动操作未生效：${wbInteractiveReasonLabel(reason)}');
+  }
+
+  /// 跟随 HUD：顶部「跟随中 · XX」条 + 停止按钮（M3）。
+  Widget _followHud(BuildContext context) {
+    final WbThemeColors colors = context.wbColors;
+    return Container(
+      key: const Key('wb-follow-hud'),
+      padding: const EdgeInsets.fromLTRB(12, 6, 6, 6),
+      decoration: BoxDecoration(
+        color: colors.elevated,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: colors.cardBorder),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          Icon(LinearIcons.visible, size: 14, color: colors.primary),
+          const SizedBox(width: 6),
+          Text(
+            '跟随中 · ${_shortUserId(_follow.followingUserId)}',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          const SizedBox(width: 4),
+          IconButton(
+            key: const Key('wb-follow-stop'),
+            tooltip: '停止跟随',
+            icon: const Icon(LinearIcons.close, size: 16),
+            visualDensity: VisualDensity.compact,
+            constraints: const BoxConstraints.tightFor(width: 28, height: 28),
+            padding: EdgeInsets.zero,
+            onPressed: _follow.stopFollow,
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 只读横幅（被移出房间；M3 存续提示）。
+  Widget _removedBanner(BuildContext context) {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    return Container(
+      key: const Key('wb-removed-banner'),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: scheme.errorContainer,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          Icon(LinearIcons.offline, size: 14, color: scheme.onErrorContainer),
+          const SizedBox(width: 6),
+          Text(
+            _collab.removedMessage,
+            style: Theme.of(context)
+                .textTheme
+                .bodySmall
+                ?.copyWith(color: scheme.onErrorContainer),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 短 id（尾 8 位；空串返回「未知」）。
+  String _shortUserId(String id) {
+    if (id.isEmpty) {
+      return '未知';
+    }
+    return id.length <= 8 ? id : id.substring(id.length - 8);
   }
 
   // ---- 桌面批注（显示桌面）模式（问题 7 / C2） -----------------------------
@@ -518,11 +726,25 @@ class _BoardEditPageState extends State<BoardEditPage> {
 
   // ---- 圆盘工具 / 动作（常驻圆盘与临时圆盘共用） --------------------------
 
+  /// 导航类圆盘工具（M3 只读收窄时保留：选择 / 手 / 框选 / 套索；
+  /// 其余绘制 / 创建入口在无编辑权限时提示并忽略）。
+  static bool _isNavigationRadialTool(String toolId) =>
+      toolId == 'select' ||
+      toolId == 'hand' ||
+      toolId == 'marquee' ||
+      toolId == 'lasso';
+
   /// 圆盘 / 底部工具栏工具 id → 画布行为（全量映射见 [WbRadialToolMapping]，
   /// 覆盖 `RadialCatalog` 全部绘图工具；动作工具走 [_handleRadialAction]）。
   void _applyRadialTool(String toolId) {
     final WbRadialToolPlan? plan = WbRadialToolMapping.resolve(toolId);
     if (plan == null) {
+      return;
+    }
+    // M3 只读收窄：无编辑权限时仅导航工具可用，其余入口提示
+    // （画布手势层由 setInteractionEnabled(false) 硬控）。
+    if (!_collab.canEdit && !_isNavigationRadialTool(toolId)) {
+      _notifyNoEditPermission();
       return;
     }
     final WbShapeKind? shapeKind = plan.shapeKind;
@@ -619,7 +841,16 @@ class _BoardEditPageState extends State<BoardEditPage> {
   // ---- 底部 / 上下文工具栏命令（A2：统一出口） --------------------------
 
   /// 工具栏统一命令分发：结构性命令执行，未实现命令给出轻提示。
+  ///
+  /// M3 只读收窄：统一出口防御守卫——无编辑权限时仅放行设置 / 快捷键
+  /// （上下文工具栏已被 `drawingEnabled` 收窄，此处兜底未来新入口）。
   void _handleToolbarCommand(WbToolbarCommand command) {
+    if (!_collab.canEdit &&
+        command.toolId != WbToolbarToolIds.settings &&
+        command.toolId != WbToolbarToolIds.shortcuts) {
+      _notifyNoEditPermission();
+      return;
+    }
     switch (command.toolId) {
       case 'element.delete':
         _canvas.deleteSelected();
@@ -687,6 +918,11 @@ class _BoardEditPageState extends State<BoardEditPage> {
       );
   }
 
+  /// M3 只读收窄（2026-10 默认无权限）：无编辑权限的统一提示（圆盘 /
+  /// 工具面板 / 侧栏 / 页面 / 图层 / AI 工具调用共用同一文案出口）。
+  void _notifyNoEditPermission() =>
+      _snack('当前无编辑权限（可由主持人授权）');
+
   // ---- 圆盘整体拖动（A3：折叠态中心拖动） -------------------------------
 
   /// 拖动后钳制圆盘偏移：布局外框保持在画布区域内（resize 后同样生效）。
@@ -725,6 +961,11 @@ class _BoardEditPageState extends State<BoardEditPage> {
   /// 编辑页「保存」返回模型 → 插入画布视口中心并选中（支持 Ctrl+Z
   /// 撤销）；「取消 / 关闭」返回 null → 不插入。
   Future<void> _createProfessionalElement(WbQuickCreateKind kind) async {
+    // M3 只读收窄：无编辑权限时创建入口直接提示（不进入编辑页）。
+    if (!_collab.canEdit) {
+      _notifyNoEditPermission();
+      return;
+    }
     final Object? model = await context.push<Object>(
       WbRoutes.elementEditorPath(widget.boardId),
       extra: WbElementEditorRequest(kind: kind),
@@ -741,53 +982,80 @@ class _BoardEditPageState extends State<BoardEditPage> {
   }
 
   /// 双击专业元素 → 独立编辑页（问题 6）：保存后按新模型回写画布。
+  ///
+  /// M2 软锁：进入前闸门（他人编辑中提示并跳过）+ acquire（本地快照
+  /// 乐观判断）；编辑页返回后 release（回执被拒由 onLockDenied 兜底）。
   Future<void> _onElementActivate(WbCanvasElement element) async {
     final WbQuickCreateKind? kind = WbQuickCreateKind.byId(element.type);
     if (kind == null) {
       return;
     }
-    final Object? model = await context.push<Object>(
-      WbRoutes.elementEditorPath(widget.boardId),
-      extra: WbElementEditorRequest(
-        kind: kind,
-        initialModel: element.payload,
-        elementId: element.id,
-      ),
-    );
-    if (!mounted || model == null) {
+    final String? holder = _collab.lockHolderOf(element.id);
+    if (holder != null && holder.isNotEmpty) {
+      _snack('${_lockHolderLabel(holder)}正在编辑该元素');
       return;
     }
-    final Size measured = WbProfessionalRenderer.measure(kind.id, model) ??
-        const Size(320, 240);
-    _canvas.updateElement(
-      element.id,
-      (WbCanvasElement current) => current.copyWith(
-        payload: model,
-        width: measured.width,
-        height: measured.height,
-      ),
-    );
+    _collab.acquireLock(element.id);
+    try {
+      final Object? model = await context.push<Object>(
+        WbRoutes.elementEditorPath(widget.boardId),
+        extra: WbElementEditorRequest(
+          kind: kind,
+          initialModel: element.payload,
+          elementId: element.id,
+        ),
+      );
+      if (!mounted || model == null) {
+        return;
+      }
+      final Size measured = WbProfessionalRenderer.measure(kind.id, model) ??
+          const Size(320, 240);
+      _canvas.updateElement(
+        element.id,
+        (WbCanvasElement current) => current.copyWith(
+          payload: model,
+          width: measured.width,
+          height: measured.height,
+        ),
+      );
+    } finally {
+      _collab.releaseLock(element.id);
+    }
   }
 
   /// 点击尺寸角标 → 尺寸设置对话框；确认后按新宽高回写（波次 C）。
   ///
   /// 取消返回 null 时不修改；调整保持元素中心不变并入撤销栈
   /// （[WbCanvasController.resizeElementById] 内处理）。
+  ///
+  /// M2 软锁：打开前闸门 + acquire，关闭 / 确认后 release。
   Future<void> _onSizeBadgeTap(WbCanvasElement element) async {
-    final (double, double)? size = await showElementSizeDialog(
-      context,
-      width: element.width,
-      height: element.height,
-    );
-    if (!mounted || size == null) {
+    final String? holder = _collab.lockHolderOf(element.id);
+    if (holder != null && holder.isNotEmpty) {
+      _snack('${_lockHolderLabel(holder)}正在编辑该元素');
       return;
     }
-    _canvas.resizeElementById(element.id, size.$1, size.$2);
+    _collab.acquireLock(element.id);
+    try {
+      final (double, double)? size = await showElementSizeDialog(
+        context,
+        width: element.width,
+        height: element.height,
+      );
+      if (!mounted || size == null) {
+        return;
+      }
+      _canvas.resizeElementById(element.id, size.$1, size.$2);
+    } finally {
+      _collab.releaseLock(element.id);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final WbThemeColors colors = context.wbColors;
+    // M3：演示 / 只读 / 跟随状态源（低频通知；画布高频帧不经此重建）。
+    final WbCollabService collab = context.watch<WbCollabService>();
     // B3：工具栏风格二选一（圆盘 / 顶部工具面板）。
     final WbThemeState themeState = context.watch<WbThemeState>();
     final bool topToolbar = themeState.appearance.toolbarStyle ==
@@ -798,7 +1066,12 @@ class _BoardEditPageState extends State<BoardEditPage> {
     }
     return Scaffold(
       key: _scaffoldKey,
-      endDrawer: const WbParticipantsPanel(),
+      // M3：参与者面板经 Provider 读取本页跟随控制器（同一实例：
+      // 「跟随」按钮 → 跟随状态机 / HUD / 打断由 _follow 统一管理）。
+      endDrawer: ChangeNotifierProvider<WbFollowController>.value(
+        value: _follow,
+        child: const WbParticipantsPanel(),
+      ),
       appBar: AppBar(
         backgroundColor: colors.surface,
         leading: IconButton(
@@ -827,6 +1100,26 @@ class _BoardEditPageState extends State<BoardEditPage> {
                     message: '核心引擎未加载，当前为演示模式',
                     child: Chip(
                       label: const Text('演示'),
+                      labelStyle: Theme.of(context).textTheme.bodySmall,
+                      side: BorderSide(color: colors.border),
+                      backgroundColor: colors.canvas,
+                    ),
+                  ),
+                ],
+                if (collab.presentMode) ...<Widget>[
+                  const SizedBox(width: 12),
+                  Tooltip(
+                    message: collab.presenterId == collab.selfUserId
+                        ? '演示中（你是演示者）'
+                        : '演示中 · 演示者 ${_shortUserId(collab.presenterId)}',
+                    child: Chip(
+                      key: const ValueKey<String>('wb-present-chip'),
+                      avatar: Icon(
+                        LinearIcons.visible,
+                        size: 14,
+                        color: colors.primary,
+                      ),
+                      label: const Text('演示中'),
                       labelStyle: Theme.of(context).textTheme.bodySmall,
                       side: BorderSide(color: colors.border),
                       backgroundColor: colors.canvas,
@@ -879,7 +1172,15 @@ class _BoardEditPageState extends State<BoardEditPage> {
       ),
       body: Row(
         children: <Widget>[
-          SizedBox(width: 240, child: Sidebar(canvasController: _canvas)),
+          SizedBox(
+            width: 240,
+            child: Sidebar(
+              canvasController: _canvas,
+              // M3 权限收窄：页面 / 图层编辑入口统一走只读守卫。
+              canEdit: collab.canEdit,
+              onBlockedEdit: _notifyNoEditPermission,
+            ),
+          ),
           const VerticalDivider(width: 1),
           Expanded(
             child: LayoutBuilder(
@@ -898,14 +1199,57 @@ class _BoardEditPageState extends State<BoardEditPage> {
                         onPointerUp: (PointerUpEvent _) => _cancelLongPress(),
                         onPointerCancel: (PointerCancelEvent _) =>
                             _cancelLongPress(),
-                        child: CanvasView(
-                          controller: _canvas,
-                          showToolPalette: topToolbar,
-                          onQuickCreate: (WbQuickCreateKind kind) =>
-                              unawaited(_createProfessionalElement(kind)),
+                        child: Consumer<WbPageState>(
+                          builder: (BuildContext context, WbPageState pages,
+                              Widget? child) {
+                            return CanvasView(
+                              controller: _canvas,
+                              showToolPalette: topToolbar,
+                              // M3 权限收窄：顶部工具面板非导航项置灰。
+                              drawingEnabled: collab.canEdit,
+                              // 当前页信息：切页 / 换背景 → CanvasView
+                              // 自动切换画布文档并重建 painter（重建范围
+                              // 收窄到画布子树，页状态更新不重建整页）。
+                              pageId: pages.currentPageId,
+                              pageBackground: pages.currentPage?.background,
+                              onQuickCreate: (WbQuickCreateKind kind) =>
+                                  unawaited(_createProfessionalElement(kind)),
+                            );
+                          },
                         ),
                       ),
                     ),
+                    // M2 在场层：远端光标 / 选区（IgnorePointer，不拦截交互）。
+                    Positioned.fill(
+                      child: WbRemoteCursorsOverlay(
+                        store: _presence,
+                        controller: _canvas,
+                      ),
+                    ),
+                    // M3 状态条：只读横幅（被移出）或跟随 HUD（跟随中）。
+                    if (collab.isRemoved)
+                      Positioned(
+                        top: 12,
+                        left: 0,
+                        right: 0,
+                        child: Center(child: _removedBanner(context)),
+                      )
+                    else
+                      Positioned(
+                        top: 12,
+                        left: 0,
+                        right: 0,
+                        child: Center(
+                          child: ListenableBuilder(
+                            listenable: _follow,
+                            builder: (BuildContext context, Widget? child) {
+                              return _follow.isFollowing
+                                  ? _followHud(context)
+                                  : const SizedBox.shrink();
+                            },
+                          ),
+                        ),
+                      ),
                     Positioned(
                       left: 0,
                       right: 0,
@@ -925,6 +1269,8 @@ class _BoardEditPageState extends State<BoardEditPage> {
                               penColor: Color(_canvas.penColor),
                               onPenColorChanged: (Color color) =>
                                   _canvas.setPenColor(color.toARGB32()),
+                              // M3 权限收窄：canEdit=false 时绘制项置灰。
+                              drawingEnabled: collab.canEdit,
                             );
                           },
                         ),

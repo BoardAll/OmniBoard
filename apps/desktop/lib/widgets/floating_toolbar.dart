@@ -9,7 +9,9 @@
 ///   恢复默认工具集（"工具栏区切换"布局，浮层布局见 [showWbContextToolbar]）；
 /// - §5：更多 → 设置、快捷键；
 /// - §17.2：溢出条目折叠入"更多"菜单，点击空白处收起（PopupMenu 默认）；
-/// - §18：高度 40 / 按钮 32 / 图标 20 / 圆角 / 出现 120ms / 消失 100ms。
+/// - §18：高度 40 / 按钮 32 / 图标 20 / 圆角 / 出现 120ms / 消失 100ms；
+/// - M3 权限收窄：[drawingEnabled] 为 false 时仅保留选择 / 抓手可用，
+///   其余绘图项、撤销 / 重做置灰且不切换上下文工具栏。
 ///
 /// 画布联动偏差：画布控制器（`WbCanvasController`）由 `CanvasView` 内部
 /// 持有、对工具栏不可达；本组件维护自身选择状态并输出 [onToolChanged] /
@@ -53,6 +55,7 @@ class FloatingToolbar extends StatefulWidget {
     this.onPendingStyleChanged,
     this.penColor,
     this.onPenColorChanged,
+    this.drawingEnabled = true,
   });
 
   /// 初始高亮工具（未受控模式下使用）。
@@ -92,6 +95,12 @@ class FloatingToolbar extends StatefulWidget {
   /// 画笔颜色变更。为 null 时不显示取色按钮（测试与未接线场景）。
   final ValueChanged<Color>? onPenColorChanged;
 
+  /// 是否允许绘制 / 编辑（M3 权限收窄）：false 时主工具行仅保留
+  /// 选择 / 抓手，其余绘图项与撤销 / 重做置灰，且不做上下文工具栏切换；
+  /// 由宿主以 `WbCollabService.canEdit` 驱动（`free` 与 `present` 两种
+  /// 模式共用；透明批注不受此开关影响）。
+  final bool drawingEnabled;
+
   @override
   State<FloatingToolbar> createState() => _FloatingToolbarState();
 }
@@ -109,6 +118,10 @@ class _FloatingToolbarState extends State<FloatingToolbar> {
     }
     widget.onToolChanged?.call(id);
   }
+
+  /// 导航类工具（M3 只读收窄时保留可用：选择 / 抓手）。
+  bool _isNavigationTool(String id) =>
+      id == WbToolbarToolIds.select || id == WbToolbarToolIds.hand;
 
   /// 组首标记（组间渲染额外间距）。
   bool _startsGroup(String id) {
@@ -160,7 +173,9 @@ class _FloatingToolbarState extends State<FloatingToolbar> {
   Widget build(BuildContext context) {
     final WbThemeColors colors = context.wbColors;
     final WbContextTarget target = _resolveTarget(context);
+    // M3 只读收窄：无编辑权限时不做「有选中 → 上下文工具栏」切换。
     final bool contextMode = widget.showContextToolbar &&
+        widget.drawingEnabled &&
         target.type != WbContextTargetType.none &&
         !target.isEmpty;
 
@@ -205,6 +220,8 @@ class _FloatingToolbarState extends State<FloatingToolbar> {
           icon: item.icon,
           shortcut: item.shortcut,
           active: item.id == active,
+          // M3 只读收窄：保留选择 / 抓手（非编辑），其余绘制项置灰。
+          enabled: widget.drawingEnabled || _isNavigationTool(item.id),
           startsGroup: _startsGroup(item.id),
           onTap: () => _selectTool(item.id),
         ),
@@ -232,7 +249,8 @@ class _FloatingToolbarState extends State<FloatingToolbar> {
             key: const ValueKey<String>('wb-toolbar-edit.undo'),
             icon: LinearIcons.undo,
             tooltip: '撤销',
-            enabled: widget.onUndo != null || board != null,
+            enabled: (widget.onUndo != null || board != null) &&
+                widget.drawingEnabled,
             onTap: () {
               final VoidCallback? undo = widget.onUndo;
               if (undo != null) {
@@ -246,7 +264,8 @@ class _FloatingToolbarState extends State<FloatingToolbar> {
             key: const ValueKey<String>('wb-toolbar-edit.redo'),
             icon: LinearIcons.redo,
             tooltip: '重做',
-            enabled: widget.onRedo != null || board != null,
+            enabled: (widget.onRedo != null || board != null) &&
+                widget.drawingEnabled,
             onTap: () {
               final VoidCallback? redo = widget.onRedo;
               if (redo != null) {
@@ -1122,9 +1141,19 @@ class _PenColorDialog extends StatelessWidget {
               show: true,
               renderInRootScaffold: false,
               title: '画笔颜色',
-              maxHeight: MediaQuery.sizeOf(context).height - 48,
               onDismissRequest: () => Navigator.of(context).pop(),
-              content: _PenColorDialogBody(initial: initial),
+              content: ConstrainedBox(
+                // MiuixOverlayDialog（flutter_miuix 1.2.0）无 maxHeight 参数、
+                // 仅大屏自动限高：这里保留「不超过一屏」的约束，
+                // 小窗口下超出时内容区滚动。
+                constraints: BoxConstraints(
+                  maxHeight: (MediaQuery.sizeOf(context).height - 96)
+                      .clamp(120.0, double.infinity),
+                ),
+                child: SingleChildScrollView(
+                  child: _PenColorDialogBody(initial: initial),
+                ),
+              ),
             ),
             const MiuixPopupHost(),
           ],

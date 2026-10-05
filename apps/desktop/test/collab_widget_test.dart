@@ -1,7 +1,7 @@
 /// T1.7 桌面协作 UI 组件测试：状态 chip 五态映射与悬停提示 /
 /// 参与者面板列表与空态 / 参与者入口徽标与开合 / 互动白板入口按钮与
-/// 加入 / 房间对话框（默认本地 → 按需入房；fake 引擎 + Provider 注入，
-/// 不依赖 DLL 与网络）。
+/// 加入 / 房间对话框（默认本地 → 按需入房；M2 重连预算耗尽恢复入口；
+/// fake 引擎 + Provider 注入，不依赖 DLL 与网络）。
 library;
 
 import 'package:flutter/material.dart';
@@ -499,6 +499,51 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(left, isNull);
+    });
+
+    testWidgets('房间信息：重连预算耗尽 → 失败提示 + 「重新连接」恢复入口（M2）',
+        (WidgetTester tester) async {
+      final _Harness h = _Harness();
+      addTearDown(h.service.dispose);
+      await h.service.start(boardId: 'room-x');
+      h.engine.connected = false;
+      h.engine.transportState = 'failed';
+      h.engine.reconnectCount = WbCollabService.reconnectBudget;
+      h.timers.fire();
+
+      await _pump(
+        tester,
+        h.service,
+        Builder(
+          builder: (BuildContext context) => TextButton(
+            onPressed: () async {
+              await showWbCollabRoomDialog(context);
+            },
+            child: const Text('open-room'),
+          ),
+        ),
+      );
+      await tester.tap(find.text('open-room'));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('已重连 5 次'), findsOneWidget);
+      final OutlinedButton reconnect = tester.widget<OutlinedButton>(
+        find.byKey(const ValueKey<String>('wb-collab-room-reconnect')),
+      );
+      expect(reconnect.onPressed, isNotNull);
+
+      // 点击重连：stop + 同房 start（重新入房）并轻提示成功。
+      await tester.tap(
+        find.byKey(const ValueKey<String>('wb-collab-room-reconnect')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(h.engine.joinedBoards, <String>['room-x', 'room-x']);
+      expect(h.engine.connected, isTrue);
+      expect(find.text('已重新连接互动白板'), findsOneWidget);
+
+      // 等轻提示自然消退，避免测试结束残留计时器。
+      await tester.pump(const Duration(seconds: 3));
     });
   });
 }

@@ -1,5 +1,5 @@
+import '../engine.dart';
 import '../utils/json_codec.dart';
-import '../wb_core_ffi.dart';
 
 /// CRDT 服务（M1 最小面）：文档创建 + 本地操作应用（crdt 域）。
 ///
@@ -12,7 +12,7 @@ import '../wb_core_ffi.dart';
 class WbCrdtService {
   const WbCrdtService(this.ffi);
 
-  final WbCoreFfi ffi;
+  final WbEngineCaller ffi;
 
   /// 创建 CRDT 文档。
   ///
@@ -23,7 +23,7 @@ class WbCrdtService {
   /// 响应 `{docId, actor, version}`。
   WbCrdtCreateData create(String docId, {String? actor}) {
     final WbResponse response = WbResponse.parse(
-      ffi.call2(ffi.bindings.wbCrdtCreate, docId, actor ?? ''),
+      ffi.call2('wb_crdt_create', docId, actor ?? ''),
     );
     return WbCrdtCreateData.fromJson(response.requireResult());
   }
@@ -35,7 +35,7 @@ class WbCrdtService {
   /// `InvalidArgument`。
   WbCrdtApplyData applyLocal(String docId, Map<String, dynamic> op) {
     final WbResponse response = WbResponse.parse(
-      ffi.call2(ffi.bindings.wbCrdtApplyLocal, docId, WbJsonCodec.encode(op)),
+      ffi.call2('wb_crdt_apply_local', docId, WbJsonCodec.encode(op)),
     );
     return WbCrdtApplyData.fromJson(response.requireResult());
   }

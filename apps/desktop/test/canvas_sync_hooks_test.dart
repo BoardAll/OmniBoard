@@ -116,6 +116,19 @@ void main() {
       }
     });
 
+    test('批次携带当前页 id：value 内嵌 pageId（接收端按页路由）', () {
+      controller.setPage('page-2');
+      final WbCanvasElement element = controller.insertElement(
+        type: WbElementKind.note,
+        size: const Size(60, 60),
+      );
+
+      expect(engine.sentOps.single['key'], 'el:${element.id}:data');
+      final Map<String, dynamic> value =
+          Map<String, dynamic>.from(engine.sentOps.single['value'] as Map);
+      expect(value['pageId'], 'page-2');
+    });
+
     test('drawing 笔迹：整元素 JSON 含 points', () {
       final List<WbCanvasElement> created =
           controller.insertElements(<WbElementSpec>[
@@ -208,6 +221,54 @@ void main() {
       expect(engine.sentOps, isEmpty);
     });
 
+    test('远端 upsert 按 pageId 路由（非当前页仅写入文档）', () {
+      const WbCanvasElement remote = WbCanvasElement(
+        id: 'r7',
+        type: WbElementKind.note,
+        x: 0,
+        y: 0,
+        width: 100,
+        height: 80,
+      );
+      final Map<String, dynamic> value =
+          WbBoardFileCodec.encodeElement(remote);
+      value['pageId'] = 'page-2';
+      engine.nextOps = <Map<String, dynamic>>[
+        <String, dynamic>{'key': 'el:r7:data', 'value': value},
+      ];
+      timers.fire();
+
+      expect(controller.document.elementsOf('page-2').single.id, 'r7');
+      expect(controller.elements, isEmpty); // 当前页（''）不受影响
+
+      controller.setPage('page-2');
+      expect(
+        controller.elements.map((WbCanvasElement e) => e.id),
+        <String>['r7'],
+      );
+    });
+
+    test('远端删除无页信息：跨页查找所在页删除', () {
+      const WbCanvasElement remote = WbCanvasElement(
+        id: 'r8',
+        type: WbElementKind.note,
+        x: 0,
+        y: 0,
+        width: 100,
+        height: 80,
+      );
+      controller.applyRemoteElement(remote, pageId: 'page-3');
+      expect(controller.document.elementsOf('page-3').length, 1);
+
+      // 线格式（el:{id}:exists=false）不带页信息：按元素 id 跨页查找。
+      engine.nextOps = <Map<String, dynamic>>[
+        <String, dynamic>{'key': 'el:r8:exists', 'value': false},
+      ];
+      timers.fire();
+
+      expect(controller.document.elementsOf('page-3'), isEmpty);
+    });
+
     test('远端应用不入撤销栈：undo 只消耗本地步', () {
       controller.insertElement(
         type: WbElementKind.note,
@@ -236,9 +297,9 @@ void main() {
 
     test('防回发：远端应用窗口内画布出口跳过（控制器侧）', () {
       bool? inside;
-      service.onRemoteElement = (WbCanvasElement element) {
+      service.onRemoteElement = (WbCanvasElement element, {String? pageId}) {
         inside = service.isApplyingRemote;
-        controller.applyRemoteElement(element);
+        controller.applyRemoteElement(element, pageId: pageId);
         // 窗口内本地提交（模拟回调链触发）：应被出口跳过。
         controller.insertElement(
           type: WbElementKind.note,
@@ -282,6 +343,108 @@ void main() {
 
       expect(service.lastSyncedAt, isNotNull);
       expect(controller.elements, isEmpty);
+    });
+  });
+
+  // ---- 元素 id 命名空间（跨端防撞车，方案 B） ------------------------------
+
+  group('元素 id 命名空间（跨端防撞车）', () {
+    final RegExp idPattern = RegExp(r'^wb-el-[a-z0-9]{8}-\d+$');
+
+    /// id 的命名空间前缀（`wb-el-<ns>-N` → `wb-el-<ns>`）。
+    String namespaceOf(String id) => id.substring(0, id.lastIndexOf('-'));
+
+    /// id 的序号段（`wb-el-<ns>-N` → N）。
+    int serialOf(String id) => int.parse(id.substring(id.lastIndexOf('-') + 1));
+
+    /// 直接构造带指定 id 的元素（模拟旧文档 / 既有命名空间数据）。
+    WbCanvasElement withId(String id) => WbCanvasElement(
+          id: id,
+          type: WbElementKind.note,
+          x: 0,
+          y: 0,
+          width: 100,
+          height: 80,
+        );
+
+    test('生成格式 wb-el-<ns>-N：同实例前缀一致且序号递增', () {
+      final WbCanvasElement a = controller.insertElement(
+        type: WbElementKind.note,
+        size: const Size(100, 80),
+      );
+      final WbCanvasElement b = controller.insertElement(
+        type: WbElementKind.note,
+        size: const Size(100, 80),
+      );
+
+      expect(idPattern.hasMatch(a.id), isTrue, reason: a.id);
+      expect(idPattern.hasMatch(b.id), isTrue, reason: b.id);
+      expect(namespaceOf(a.id), namespaceOf(b.id));
+      expect(serialOf(b.id), serialOf(a.id) + 1);
+    });
+
+    test('双实例（模拟两端）：命名空间不同、id 互不撞车', () {
+      final WbCanvasController other =
+          WbCanvasController(selection: WbSelectionState());
+      addTearDown(other.dispose);
+
+      final Set<String> ids = <String>{};
+      for (int i = 0; i < 20; i++) {
+        ids.add(
+          controller
+              .insertElement(
+                type: WbElementKind.note,
+                size: const Size(60, 60),
+              )
+              .id,
+        );
+        ids.add(
+          other
+              .insertElement(
+                type: WbElementKind.note,
+                size: const Size(60, 60),
+              )
+              .id,
+        );
+      }
+      // 修复前：两端各自 wb-el-1..N 同号，协同 LWW 互相覆盖 / 误删；
+      // 修复后 40 个 id 全部唯一。
+      expect(ids.length, 40);
+    });
+
+    test('加载旧格式文档（wb-el-N）后新建：与既有 id 不撞车', () {
+      controller.loadBoardData(<String, List<WbCanvasElement>>{
+        '': <WbCanvasElement>[withId('wb-el-1'), withId('wb-el-9')],
+      });
+
+      final WbCanvasElement created = controller.insertElement(
+        type: WbElementKind.note,
+        size: const Size(100, 80),
+      );
+
+      expect(idPattern.hasMatch(created.id), isTrue, reason: created.id);
+      expect(created.id, isNot('wb-el-1'));
+      expect(created.id, isNot('wb-el-9'));
+    });
+
+    test('重载含本实例命名空间的文档：序列提升防撞车', () {
+      final WbCanvasElement seed = controller.insertElement(
+        type: WbElementKind.note,
+        size: const Size(100, 80),
+      );
+      final String namespace = namespaceOf(seed.id);
+
+      controller.loadBoardData(<String, List<WbCanvasElement>>{
+        '': <WbCanvasElement>[withId('$namespace-7')],
+      });
+
+      final WbCanvasElement created = controller.insertElement(
+        type: WbElementKind.note,
+        size: const Size(100, 80),
+      );
+
+      expect(namespaceOf(created.id), namespace);
+      expect(serialOf(created.id), greaterThan(7));
     });
   });
 }

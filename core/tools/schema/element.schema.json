@@ -14,6 +14,7 @@
         "sticky",
         "text",
         "shape",
+        "drawing",
         "connector",
         "image",
         "frame",
@@ -78,6 +79,15 @@
         "label": { "type": "string" },
         "waypoints": { "type": "array", "items": { "$ref": "#/$defs/Point" } },
         "autoRoute": { "type": "boolean", "default": true }
+      }
+    },
+    "Drawing": {
+      "type": "object",
+      "description": "data payload when type == drawing",
+      "required": ["points"],
+      "properties": {
+        "points": { "type": "array", "items": { "$ref": "#/$defs/Point" } },
+        "style": { "type": "object" }
       }
     }
   }

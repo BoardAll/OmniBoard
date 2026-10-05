@@ -13,6 +13,7 @@
 library;
 
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -28,6 +29,7 @@ import '../state/board_state.dart';
 import '../state/page_state.dart';
 import 'canvas/canvas_controller.dart';
 import 'layers_panel.dart';
+import 'page_background_dialog.dart';
 import 'page_manager.dart';
 
 /// 左侧栏。
@@ -37,6 +39,8 @@ class Sidebar extends StatefulWidget {
     this.initiallyCollapsed = false,
     this.onOpenAiPanel,
     this.canvasController,
+    this.canEdit = true,
+    this.onBlockedEdit,
   });
 
   /// 展开宽度（design §2.3）。
@@ -59,6 +63,12 @@ class Sidebar extends StatefulWidget {
 
   /// 画布控制器（可选，透传给图层面板；编辑页注入后图层与画布同源）。
   final WbCanvasController? canvasController;
+
+  /// 是否允许编辑（M3 只读收窄；false 时新建页面等编辑入口被拦）。
+  final bool canEdit;
+
+  /// 编辑被拦时的统一提示回调（宿主弹轻提示；null 时静默）。
+  final VoidCallback? onBlockedEdit;
 
   @override
   State<Sidebar> createState() => _SidebarState();
@@ -120,6 +130,23 @@ class _SidebarState extends State<Sidebar> {
 
   void _refreshThumbnails() {
     _refreshSignal.value++;
+  }
+
+  /// 编辑守卫（M3 只读收窄）：无编辑权限时经 [onBlockedEdit] 提示并拒绝。
+  bool _guardEdit() {
+    if (widget.canEdit) {
+      return true;
+    }
+    widget.onBlockedEdit?.call();
+    return false;
+  }
+
+  /// 新建页面（M3 只读收窄：无编辑权限时拦截）。
+  void _addPage(BuildContext context) {
+    if (!_guardEdit()) {
+      return;
+    }
+    _maybeRead<WbPageState>(context)?.addPage();
   }
 
   // ---- 导航（§3 / §7） ----
@@ -328,7 +355,7 @@ class _SidebarState extends State<Sidebar> {
               key: const ValueKey<String>('pages-add'),
               tooltip: '新建页面',
               icon: Icon(LinearIcons.addPage, size: 14, color: colors.icon),
-              onPressed: () => _maybeRead<WbPageState>(context)?.addPage(),
+              onPressed: () => _addPage(context),
               padding: EdgeInsets.zero,
               visualDensity: VisualDensity.compact,
               constraints: const BoxConstraints(minWidth: 24, minHeight: 24),
@@ -339,7 +366,13 @@ class _SidebarState extends State<Sidebar> {
         if (_pagesExpanded)
           Expanded(
             flex: _layersExpanded ? 3 : 1,
-            child: PageManager(refreshSignal: _refreshSignal),
+            child: PageManager(
+              refreshSignal: _refreshSignal,
+              canEdit: widget.canEdit,
+              onBlockedEdit: widget.onBlockedEdit,
+              onEditBackground: showWbDesktopPageBackgroundDialog,
+              previewImageProvider: (String path) => FileImage(File(path)),
+            ),
           ),
         Divider(height: 1, color: colors.border),
         _SectionHeader(
@@ -355,6 +388,8 @@ class _SidebarState extends State<Sidebar> {
             child: LayersPanel(
               refreshSignal: _refreshSignal,
               canvasController: widget.canvasController,
+              canEdit: widget.canEdit,
+              onBlockedEdit: widget.onBlockedEdit,
             ),
           ),
         if (!_pagesExpanded && !_layersExpanded) const Spacer(),
@@ -555,7 +590,7 @@ class _SidebarState extends State<Sidebar> {
           key: const ValueKey<String>('rail-add'),
           icon: LinearIcons.addPage,
           tooltip: '新建页面',
-          onTap: () => pages?.addPage(),
+          onTap: () => _addPage(context),
         ),
         Divider(height: 9, indent: 10, endIndent: 10, color: colors.border),
         _RailItem(

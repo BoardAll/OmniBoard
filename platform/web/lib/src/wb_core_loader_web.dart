@@ -98,6 +98,53 @@ class WbCoreLoader {
     return _fromJs(module.ccall(name, null, null, _toJsArgs(args)));
   }
 
+  /// 调用返回 `const char*`（UTF-8 字符串 / JSON）的导出函数。
+  ///
+  /// 与 [call] 不同，本方法按 Dart 参数自动推断 `argTypes`
+  /// （`String` → `string`，`bool` → `boolean`，其余 → `number`），
+  /// 读出返回指针后经模块 `free` 立即释放。模块未就绪或返回空指针
+  /// （0）时返回 null，不抛异常。
+  Future<String?> callString(
+    String name, [
+    List<Object?> args = const <Object?>[],
+  ]) async {
+    final WbCoreModule? module = _module;
+    if (module == null) {
+      return null;
+    }
+    final JSAny? raw =
+        module.ccall(name, 'number', _argTypesOf(args), _toJsArgs(args));
+    if (raw == null || !raw.typeofEquals('number')) {
+      return null;
+    }
+    final int ptr = (raw as JSNumber).toDartInt;
+    if (ptr == 0) {
+      return null;
+    }
+    final String text = module.utf8ToString(ptr);
+    module.free(ptr);
+    return text;
+  }
+
+  /// 调用返回整数的导出函数（`argTypes` 自动推断，同 [callString]）。
+  ///
+  /// 模块未就绪或返回值非数字时返回 null。
+  Future<int?> callInt(
+    String name, [
+    List<Object?> args = const <Object?>[],
+  ]) async {
+    final WbCoreModule? module = _module;
+    if (module == null) {
+      return null;
+    }
+    final JSAny? raw =
+        module.ccall(name, 'number', _argTypesOf(args), _toJsArgs(args));
+    if (raw == null || !raw.typeofEquals('number')) {
+      return null;
+    }
+    return (raw as JSNumber).toDartInt;
+  }
+
   /// `cwrap` 代理；模块未就绪时返回 null。
   ///
   /// 返回的 [WbCoreCallable] 可反复调用（内部走 Emscripten `cwrap`
@@ -129,8 +176,8 @@ class WbCoreLoader {
 
       JSFunction? factory = _lookupFactory();
       if (factory == null) {
-        // 注入脚本；wb_core.js 若为占位脚本（Wave 4 前），
-        // 注入后仍不会定义 window.WbCore，进入 unavailable。
+        // 注入脚本；wb_core.js 若不定义 window.WbCore
+        // （占位脚本 / 资源缺失），注入后进入 unavailable。
         await _injectScript().timeout(loadTimeout);
         _emitProgress(0.5);
         factory = _lookupFactory();
@@ -216,6 +263,18 @@ class WbCoreLoader {
 
   JSArray<JSAny?> _toJsArgs(List<Object?> args) =>
       args.map(_toJs).toList().toJS;
+
+  /// 依据 Dart 参数类型推断 ccall 的 `argTypes`。
+  static JSArray<JSString> _argTypesOf(List<Object?> args) => args
+      .map(
+        (Object? arg) => switch (arg) {
+          final String _ => 'string'.toJS,
+          final bool _ => 'boolean'.toJS,
+          _ => 'number'.toJS,
+        },
+      )
+      .toList()
+      .toJS;
 
   void _emitProgress(double value) {
     if (!_progress.isClosed) {

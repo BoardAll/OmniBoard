@@ -804,6 +804,7 @@ enum class ElementType {
   Sticky,
   Text,
   Shape,
+  Drawing,
   Connector,
   Image,
   Frame,

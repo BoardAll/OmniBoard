@@ -77,6 +77,43 @@ class FakeCollabEngine implements WbCollabEngine {
   /// 下一次 `events()` 返回的预览（drain：返回后清空）。
   List<Map<String, dynamic>> nextPreviews = <Map<String, dynamic>>[];
 
+  /// `sendPreview` 收到的预览载荷（按调用顺序）。
+  final List<Map<String, dynamic>> sentPreviews = <Map<String, dynamic>>[];
+
+  /// `sendPreview` 返回 `dropped`（模拟未连接 / 离线 / 被拒）。
+  bool previewDropped = false;
+
+  /// `sendPreview` 抛出的错误。
+  Object? previewError;
+
+  /// `lock` 调用记录（`action:elementId`）。
+  final List<String> lockCalls = <String>[];
+
+  /// `lock` 返回的 `requested`（false 模拟未连接 / 离线）。
+  bool lockRequested = true;
+
+  /// `lock` 抛出的错误。
+  Object? lockError;
+
+  /// `interactive` 调用记录（Map：action / userId? / targetUserId?）。
+  final List<Map<String, dynamic>> interactiveCalls =
+      <Map<String, dynamic>>[];
+
+  /// `interactive` 返回的 `requested`（false 模拟未连接 / 离线）。
+  bool interactiveRequested = true;
+
+  /// `interactive` 抛出的错误。
+  Object? interactiveError;
+
+  /// 下一次 `events()` 返回的互动回执（drain：返回后清空）。
+  List<dynamic> nextInteractiveAcks = <dynamic>[];
+
+  /// 下一次 `events()` 返回的跟随事件（drain：返回后清空）。
+  List<dynamic> nextIncomingFollows = <dynamic>[];
+
+  /// 下一次 `events()` 返回的移除通知（drain：返回后清空）。
+  Map<String, dynamic> nextRemoved = <String, dynamic>{};
+
   /// `events()` 返回的房间快照（跨调用缓存语义；测试编程设置）。
   WbSyncRoomData room = const WbSyncRoomData();
 
@@ -165,13 +202,22 @@ class FakeCollabEngine implements WbCollabEngine {
     calls.add('events');
     final List<Map<String, dynamic>> ops = nextOps;
     final List<Map<String, dynamic>> previews = nextPreviews;
+    final List<dynamic> interactiveAcks = nextInteractiveAcks;
+    final List<dynamic> incomingFollows = nextIncomingFollows;
+    final Map<String, dynamic> removed = nextRemoved;
     nextOps = <Map<String, dynamic>>[];
     nextPreviews = <Map<String, dynamic>>[];
+    nextInteractiveAcks = <dynamic>[];
+    nextIncomingFollows = <dynamic>[];
+    nextRemoved = <String, dynamic>{};
     return WbSyncEventsData(
       ops: ops,
       previews: previews,
       room: room,
       status: status(),
+      interactiveAcks: interactiveAcks,
+      incomingFollows: incomingFollows,
+      removed: removed,
     );
   }
 
@@ -227,6 +273,50 @@ class FakeCollabEngine implements WbCollabEngine {
       version: seq,
       op: normalized,
     );
+  }
+
+  @override
+  WbSyncPreviewResult sendPreview(Map<String, dynamic> preview) {
+    calls.add('sendPreview');
+    final Object? error = previewError;
+    if (error != null) {
+      throw error;
+    }
+    if (previewDropped) {
+      return const WbSyncPreviewResult(dropped: true);
+    }
+    sentPreviews.add(preview);
+    return const WbSyncPreviewResult(sent: true);
+  }
+
+  @override
+  WbSyncLockResult lock({required String action, required String elementId}) {
+    calls.add('lock');
+    final Object? error = lockError;
+    if (error != null) {
+      throw error;
+    }
+    lockCalls.add('$action:$elementId');
+    return WbSyncLockResult(requested: lockRequested);
+  }
+
+  @override
+  WbSyncInteractiveResult interactive({
+    required String action,
+    String? userId,
+    String? targetUserId,
+  }) {
+    calls.add('interactive');
+    final Object? error = interactiveError;
+    if (error != null) {
+      throw error;
+    }
+    interactiveCalls.add(<String, dynamic>{
+      'action': action,
+      if (userId != null) 'userId': userId,
+      if (targetUserId != null) 'targetUserId': targetUserId,
+    });
+    return WbSyncInteractiveResult(requested: interactiveRequested);
   }
 }
 

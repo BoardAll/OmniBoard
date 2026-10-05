@@ -32,6 +32,9 @@ const stamp = String(Date.now());
 const boardId = 'dual-' + stamp;
 const elementId = 'dual-el-' + stamp;
 const flagPath = join(desktop, '.dart_tool', 'wb_t16_dual_' + stamp + '.flag');
+// M3 D3-0 预览流信号（接收端收到对端 ink 预览后写出；缺失会让
+// 双端 gate 直接 skip——必须随 baseEnv 注入）。
+const previewFlagPath = flagPath + '.preview';
 const testFile = 'test/integration/ffi_sync_dual_process_test.dart';
 
 const children = [];
@@ -168,11 +171,13 @@ try {
     WB_DUAL_BOARD: boardId,
     WB_DUAL_ELEMENT: elementId,
     WB_DUAL_FLAG: flagPath,
+    WB_DUAL_PREVIEW_FLAG: previewFlagPath,
     WB_DUAL_ENDPOINT: endpoint,
   };
 
   // 2) 接收端（真实 DLL 引擎）。
   rmSync(flagPath, { force: true });
+  rmSync(previewFlagPath, { force: true });
   log('receiver: flutter test（board=' + boardId + '）');
   const receiver = track(spawnFlutterTest('receiver', baseEnv));
   pipePrefixed(receiver, 'receiver');
@@ -219,5 +224,6 @@ try {
     killTree(child.pid);
   }
   rmSync(flagPath, { force: true });
+  rmSync(previewFlagPath, { force: true });
   log('cleanup done');
 }

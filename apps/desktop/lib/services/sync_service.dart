@@ -5,14 +5,37 @@
 ///   [WbCollabEngine] 端口转发 `whiteboard_core` 的 `WbSyncService`；
 /// - 事件面：[start] 后每 [pollInterval]（默认 50ms）轮询引擎
 ///   `sync.events`（drain 语义）——生效 op 应用到画布（[onRemoteElement]
-///   / [onRemoteRemove]）、预览透传记录（M1 不渲染）、room / status 刷新；
+///   / [onRemoteRemove]）、预览透传（M2：画布鬼影 / 光标层消费）、锁回执
+///   消费（[acquireLock] / [releaseLock] / [renewLock]）、room / status
+///   刷新；
 /// - 画布出口：[handleCanvasCommit] 把本地落定提交（与撤销栈同批）转为
-///   op——`el:{id}:data`（value = 元素契约 JSON，专业元素整元素）/
-///   删除 `el:{id}:exists=false`——经 `crdt.applyLocal` 补齐
-///   actor/seq/timestamp 后 `sync.sendOperation` 直发；
+///   op——`el:{id}:data`（value = 元素契约 JSON，内嵌 `pageId` 供接收端
+///   按页路由；专业元素整元素）/ 删除 `el:{id}:exists=false`——经
+///   `crdt.applyLocal` 补齐 actor/seq/timestamp 后 `sync.sendOperation` 直发；
+///   页结构出口：[handlePageOp] → `pg:{pageId}:{field}`（create / delete /
+///   rename / move），同一可靠通道（op log 回放供迟到入房者重建页结构）；
 /// - 防回发：应用远端 ops 期间 [isApplyingRemote] 为 true，画布出口跳过
 ///   （结构防护第一层：远端应用走 `applyRemoteElement` /
 ///   `applyRemoteRemove`，不经过画布提交漏斗）。
+///
+/// M3 扩展：互动请求（举手 / 授权 / 演示 / 移除 / 跟随）经 [interactive]
+/// 转发引擎 `sync.interactive`；事件轮询新增 interactiveAcks（拒绝原因
+/// 经 [onInteractiveError] 轻提示）/ incomingFollows（[followers]）/
+/// removed（服务端移除通知 → [isRemoved] 只读态）三个 drain 批次；room
+/// 快照新增 selfRole / mode / presenterId / grantedWrite / hostUserId /
+/// checkpointStatus / recovered（[canEdit] 权限收窄数据源；present 前缀
+/// 与 isDemoMode（无 DLL 本地降级）无关）。
+///
+/// 发起端本地确定性更新（M3 修复）：服务端互动广播排除发起者自身
+/// （`socket.to`），若仅依赖回包，本端举手 / 授权 / 演示状态将永远停滞
+/// （表现为「举手后按钮无法收手」）。故 [raiseHand] / [lowerHand] /
+/// [grantControl] / [revokeControl] / [startPresent] / [stopPresent]
+/// 走「转发受理 → 入队补丁 → ack 成功应用 / 失败丢弃」
+/// （[_pendingInteractivePatches] 按 action FIFO 结算，ack 载荷
+/// `{action, ok, reason?}` 无 userId）；读取面（[participantList] /
+/// [presentMode] / [presenterId] / [selfHandRaised]）合并补丁；stop /
+/// 传输重连 / 名单裁剪时清理。与 Web 端 T3f 口径一致；跨管理端冲突后
+/// 的短暂滞留由下次交互（回执失败即清）或全量快照自愈。
 ///
 /// 类名与包内 `whiteboard_core` 的 `WbSyncService`（引擎域封装）区分：
 /// 本类为应用侧协调器。引擎不可用（演示模式 / 无 DLL）时全部操作安全
@@ -67,6 +90,8 @@ class WbCollabParticipant {
     required this.id,
     this.role = '',
     this.isSelf = false,
+    this.handRaised = false,
+    this.grantedWrite = false,
   });
 
   /// 参与者 id（服务端 userId；字符串形状载荷原样保留）。
@@ -79,23 +104,47 @@ class WbCollabParticipant {
   /// 是否本人（selfUserId 精确匹配；快照缺身份时回退末位推断）。
   final bool isSelf;
 
+  /// 是否举手（M3；服务端 `board:participants` 扩展字段）。
+  final bool handRaised;
+
+  /// 是否持有临时写权（M3；grantedWrite 镜像）。
+  final bool grantedWrite;
+
   /// 复制并覆盖 [isSelf]。
-  WbCollabParticipant withSelf(bool value) =>
-      WbCollabParticipant(id: id, role: role, isSelf: value);
+  WbCollabParticipant withSelf(bool value) => copyWith(isSelf: value);
+
+  /// 复制并覆盖指定字段（null 保持原值）。
+  WbCollabParticipant copyWith({
+    String? role,
+    bool? isSelf,
+    bool? handRaised,
+    bool? grantedWrite,
+  }) =>
+      WbCollabParticipant(
+        id: id,
+        role: role ?? this.role,
+        isSelf: isSelf ?? this.isSelf,
+        handRaised: handRaised ?? this.handRaised,
+        grantedWrite: grantedWrite ?? this.grantedWrite,
+      );
 
   @override
   bool operator ==(Object other) =>
       other is WbCollabParticipant &&
       other.id == id &&
       other.role == role &&
-      other.isSelf == isSelf;
+      other.isSelf == isSelf &&
+      other.handRaised == handRaised &&
+      other.grantedWrite == grantedWrite;
 
   @override
-  int get hashCode => Object.hash(id, role, isSelf);
+  int get hashCode =>
+      Object.hash(id, role, isSelf, handRaised, grantedWrite);
 
   @override
-  String toString() =>
-      'WbCollabParticipant(id: $id, role: $role, isSelf: $isSelf)';
+  String toString() => 'WbCollabParticipant(id: $id, role: $role, '
+      'isSelf: $isSelf, handRaised: $handRaised, '
+      'grantedWrite: $grantedWrite)';
 }
 
 /// 协同引擎端口：`whiteboard_core` 域服务的应用侧抽象（测试注入接缝）。
@@ -129,6 +178,24 @@ abstract interface class WbCollabEngine {
 
   /// 应用一条本地操作，响应 `op` 字段供直发。
   WbCrdtApplyData applyLocal(String docId, Map<String, dynamic> op);
+
+  /// 发送高频预览（M2 笔迹 / 变换 / 光标 / 选区；可丢，须含 `kind`）。
+  WbSyncPreviewResult sendPreview(Map<String, dynamic> preview);
+
+  /// 请求软锁变更（M2 D2-C；异步授予经 `events().room.lockAcks` 回执）。
+  WbSyncLockResult lock({required String action, required String elementId});
+
+  /// 发送互动请求（M3）：raiseHand / lowerHand / grantControl /
+  /// revokeControl / startPresent / stopPresent / removeUser / follow /
+  /// unfollow；[userId] 为目标用户（grantControl / revokeControl /
+  /// removeUser），[targetUserId] 为跟随目标（follow / unfollow）。
+  /// 未连接 / 离线恒定 requested:false；异步结果经
+  /// `events().interactiveAcks` 回执。
+  WbSyncInteractiveResult interactive({
+    required String action,
+    String? userId,
+    String? targetUserId,
+  });
 }
 
 /// [WbCollabEngine] 的 FFI 实现：转发 `WbFfiService` 聚合的
@@ -172,6 +239,26 @@ class WbFfiCollabEngine implements WbCollabEngine {
   @override
   WbCrdtApplyData applyLocal(String docId, Map<String, dynamic> op) =>
       _ffiService.crdt.applyLocal(docId, op);
+
+  @override
+  WbSyncPreviewResult sendPreview(Map<String, dynamic> preview) =>
+      _ffiService.sync.sendPreview(preview);
+
+  @override
+  WbSyncLockResult lock({required String action, required String elementId}) =>
+      _ffiService.sync.lock(action: action, elementId: elementId);
+
+  @override
+  WbSyncInteractiveResult interactive({
+    required String action,
+    String? userId,
+    String? targetUserId,
+  }) =>
+      _ffiService.sync.interactive(
+        action: action,
+        userId: userId,
+        targetUserId: targetUserId,
+      );
 }
 
 /// 协作服务（应用侧协调器）。
@@ -186,6 +273,7 @@ class WbCollabService extends ChangeNotifier {
     this.pollInterval = defaultPollInterval,
     this.connectTimeout = defaultConnectTimeout,
     Timer Function(Duration interval, void Function() onTick)? pollTimerFactory,
+    Timer Function(Duration interval, void Function() onTick)? renewTimerFactory,
     Future<void> Function(Duration duration)? sleep,
     DateTime Function()? clock,
     String Function()? actorGenerator,
@@ -194,6 +282,7 @@ class WbCollabService extends ChangeNotifier {
             ? defaultEndpoint
             : endpoint.trim(),
         _pollTimerFactory = pollTimerFactory ?? _periodicTimer,
+        _renewTimerFactory = renewTimerFactory ?? _periodicTimer,
         _sleep = sleep ?? Future<void>.delayed,
         _clock = clock ?? DateTime.now,
         _actorGenerator = actorGenerator ?? _randomActor;
@@ -210,9 +299,17 @@ class WbCollabService extends ChangeNotifier {
   /// 连接就绪轮询步长（内部）。
   static const Duration _connectPollStep = Duration(milliseconds: 25);
 
+  /// 软锁续约周期（持有锁期间周期续约；服务端 TTL 30s，留重试余量）。
+  static const Duration lockRenewInterval = Duration(seconds: 10);
+
+  /// 重连预算（`reconnectCount` 达到该值后提示手动「重新连接」）。
+  static const int reconnectBudget = 5;
+
   final WbCollabEngine? _engine;
   final Timer Function(Duration interval, void Function() onTick)
       _pollTimerFactory;
+  final Timer Function(Duration interval, void Function() onTick)
+      _renewTimerFactory;
   final Future<void> Function(Duration duration) _sleep;
   final DateTime Function() _clock;
   final String Function() _actorGenerator;
@@ -236,15 +333,44 @@ class WbCollabService extends ChangeNotifier {
   int _lastPreviewCount = 0;
   WbSyncStatusData _lastStatus = const WbSyncStatusData();
   WbSyncRoomData _room = const WbSyncRoomData();
+  final Set<String> _heldLocks = <String>{};
+  Timer? _renewTimer;
+  final Set<String> _followers = <String>{};
+  bool _removed = false;
+  String _removedReason = '';
+  bool _recoveredNotified = false;
+  // M3 发起端本地确定性更新（服务端广播排除发起者；ack 确认后生效）。
+  final List<_WbPendingInteractivePatch> _pendingInteractivePatches =
+      <_WbPendingInteractivePatch>[];
+  bool? _patchHandRaised;
+  bool? _patchPresentMode;
+  String? _patchPresenterId;
+  final Map<String, bool> _patchGrantedWrite = <String, bool>{};
 
   /// 远端元素 upsert 回调（注入：画布入口；null 时空转）。
-  void Function(WbCanvasElement element)? onRemoteElement;
+  ///
+  /// [pageId] 为 op 携带的目标页（旧发送端 / 未分页帧为空串，接收端
+  /// 回退当前页）。
+  void Function(WbCanvasElement element, {String? pageId})? onRemoteElement;
 
   /// 远端元素删除回调（注入：画布入口；null 时空转）。
   void Function(String elementId)? onRemoteRemove;
 
-  /// 远端预览透传回调（M1 仅记录，不渲染；载荷 `kind`：transform / ink）。
+  /// 远端页结构 op 回调（注入：页面状态；null 时空转）。
+  ///
+  /// [field] ∈ `create`（value `{'name': ...}`）/ `delete`（true）/
+  /// `rename`（新名）/ `move`（目标索引）。
+  void Function(String pageId, String field, Object? value)? onRemotePageOp;
+
+  /// 远端预览透传回调（M2：画布鬼影 / 光标层消费；null 时空转）。
   void Function(List<Map<String, dynamic>> previews)? onRemotePreviews;
+
+  /// 本端软锁请求被拒回调（elementId + 当前持有者 userId，可能为空）。
+  void Function(String elementId, String? holderUserId)? onLockDenied;
+
+  /// 交互请求被拒回调（M3；action 原码 + reason 原码，UI 经
+  /// [wbInteractiveReasonLabel] 映射提示；null 时空转）。
+  void Function(String action, String reason)? onInteractiveError;
 
   /// 当前状态。
   WbSyncStatus get status => _status;
@@ -307,12 +433,29 @@ class WbCollabService extends ChangeNotifier {
           break;
         }
       }
-      return List<WbCollabParticipant>.unmodifiable(parsed);
+    } else {
+      // 快照缺身份（旧引擎 / 非对象载荷）：回退「末位 = 本人」推断。
+      final int last = parsed.length - 1;
+      parsed[last] = parsed[last].withSelf(true);
     }
-    // 快照缺身份（旧引擎 / 非对象载荷）：回退「末位 = 本人」推断。
-    final int last = parsed.length - 1;
-    parsed[last] = parsed[last].withSelf(true);
+    // M3 发起端本地确定性更新：合并本端互动补丁（服务端广播排除发起者）。
+    for (int i = 0; i < parsed.length; i++) {
+      parsed[i] = _mergeInteractivePatch(parsed[i]);
+    }
     return List<WbCollabParticipant>.unmodifiable(parsed);
+  }
+
+  /// 合并单条参与者的本端互动补丁（无补丁原样返回）。
+  WbCollabParticipant _mergeInteractivePatch(WbCollabParticipant participant) {
+    final bool? handRaised = participant.isSelf ? _patchHandRaised : null;
+    final bool? grantedWrite = _patchGrantedWrite[participant.id];
+    if (handRaised == null && grantedWrite == null) {
+      return participant;
+    }
+    return participant.copyWith(
+      handRaised: handRaised,
+      grantedWrite: grantedWrite,
+    );
   }
 
   /// 解析单条参与者载荷（Map 取 userId/id + role；String 原样为 id；
@@ -327,7 +470,12 @@ class WbCollabService extends ChangeNotifier {
         return null;
       }
       final Object? role = item['role'];
-      return WbCollabParticipant(id: id, role: role is String ? role : '');
+      return WbCollabParticipant(
+        id: id,
+        role: role is String ? role : '',
+        handRaised: item['handRaised'] == true,
+        grantedWrite: item['grantedWrite'] == true,
+      );
     }
     if (item is String && item.isNotEmpty) {
       return WbCollabParticipant(id: item);
@@ -338,8 +486,201 @@ class WbCollabService extends ChangeNotifier {
   /// 传输重连次数（最近快照）。
   int get reconnectCount => _lastStatus.reconnectCount;
 
-  /// 最近一次轮询收到的预览条数（M1 仅记录，不渲染）。
+  /// 最近一次轮询收到的预览条数（M2 渲染入口观测）。
   int get lastPreviewCount => _lastPreviewCount;
+
+  /// 房间锁快照（elementId → `{userId, expiresAt}`；含本端持有）。
+  Map<String, dynamic> get locks => _room.locks;
+
+  /// 本端会话身份（`board:session`；未连接 / 旧引擎为空串）。
+  String get selfUserId => _room.selfUserId;
+
+  /// 他人持有的锁（elementId → 持有者 userId；排除本端）。
+  ///
+  /// 本端身份未知（空串）时保守视为全部他人持有（不误判为本人）。
+  Map<String, String> get remoteLocks {
+    final Map<String, String> result = <String, String>{};
+    final String self = _room.selfUserId;
+    for (final MapEntry<String, dynamic> entry in _room.locks.entries) {
+      final String? holder = _lockHolderOf(entry.value);
+      if (holder == null || holder == self) {
+        continue;
+      }
+      result[entry.key] = holder;
+    }
+    return result;
+  }
+
+  /// 指定元素的锁持有者（排除本端）；无锁 / 本端持有返回 null。
+  String? lockHolderOf(String elementId) => remoteLocks[elementId];
+
+  /// 本端是否持有指定元素的软锁（acquire 回执确认后为 true）。
+  bool isHoldingLock(String elementId) => _heldLocks.contains(elementId);
+
+  /// 是否应提示手动重连（重连预算耗尽：失败态且轮次达 [reconnectBudget]）。
+  bool get shouldOfferReconnect {
+    final bool failed =
+        _status == WbSyncStatus.error || _status == WbSyncStatus.offline;
+    return failed && reconnectCount >= reconnectBudget;
+  }
+
+  // ---- M3 房间角色 / 模式 / 跟随状态 --------------------------------------
+
+  /// 本端角色（`Host` / `CoHost` / `Presenter` / `Participant` /
+  /// `Viewer` / `Guest`；未同步 / 旧引擎为空串）。
+  String get selfRole => _room.selfRole;
+
+  /// 是否演示模式（本端发起补丁优先，其次服务端 mode == `present`；与
+  /// isDemoMode（无 DLL 本地降级）无关，命名以 present 前缀区分）。
+  bool get presentMode => _patchPresentMode ?? (_room.mode == 'present');
+
+  /// 当前演示者 userId（startPresent 时由发起者署名；无演示 / 已退出为
+  /// 空串；本端发起补丁优先）。
+  String get presenterId => _patchPresenterId ?? _room.presenterId;
+
+  /// 是否持有房间级临时写权（grantedWrite 镜像）。
+  bool get grantedWrite => _room.grantedWrite;
+
+  /// 当前主持人 userId（hostChanged 折叠；未同步为空串）。
+  String get hostUserId => _room.hostUserId;
+
+  /// 本端 checkpoint 状态（`idle` / `requested` / `uploaded` / `failed`；
+  /// T3.5 引擎内自动响应，这里仅透出观测）。
+  String get checkpointStatus => _room.checkpointStatus;
+
+  /// 是否发生过 join 快照恢复（「已从存档恢复」提示数据源）。
+  bool get recovered => _room.recovered;
+
+  /// 是否应弹出「已从存档恢复」提示（一次性：展示后调
+  /// [markRecoveredNotified] 抑制重复）。
+  bool get shouldNotifyRecovered => _room.recovered && !_recoveredNotified;
+
+  /// 标记「已从存档恢复」提示已展示（幂等）。
+  void markRecoveredNotified() {
+    _recoveredNotified = true;
+  }
+
+  /// 本端是否已被移出房间（`room:removed` 单播 → 只读态）。
+  bool get isRemoved => _removed;
+
+  /// 被移出的服务端原因原码（未移除为空串；UI 展示用 [removedMessage]）。
+  String get removedReason => _removedReason;
+
+  /// 被移出的只读提示文案（横幅）。
+  String get removedMessage => '你已被移出此白板，当前为只读';
+
+  /// 正在跟随本端的用户集合（incomingFollows 折叠；跟随者离开时求交
+  /// 清理）。
+  Set<String> get followers => Set<String>.unmodifiable(_followers);
+
+  /// 是否 Host。
+  bool get isHost => selfRole == roleHost;
+
+  /// 是否 CoHost 及以上（Host / CoHost）。
+  bool get isCoHostOrHigher => roleRank(selfRole) >= roleRank(roleCoHost);
+
+  /// 是否 Presenter 及以上（Host / CoHost / Presenter）。
+  bool get isPresenterOrHigher => roleRank(selfRole) >= roleRank(rolePresenter);
+
+  /// 是否可管理互动（授权 / 移除 / 演示开关；在线 && 未被移除 && CoHost+）。
+  bool get canManageInteractions =>
+      isOnline && !_removed && isCoHostOrHigher;
+
+  /// 是否可举手 / 收手（在线 && 未被移除 && Viewer 及以上 && 非 CoHost+）。
+  bool get canRaiseHand =>
+      isOnline &&
+      !_removed &&
+      selfRole.isNotEmpty &&
+      roleRank(selfRole) >= roleRank(roleViewer) &&
+      !isCoHostOrHigher;
+
+  /// 本端是否已举手（本端发起补丁优先，其次参与者快照 handRaised）。
+  bool get selfHandRaised {
+    final bool? patched = _patchHandRaised;
+    if (patched != null) {
+      return patched;
+    }
+    for (final WbCollabParticipant participant in participantList) {
+      if (participant.isSelf) {
+        return participant.handRaised;
+      }
+    }
+    return false;
+  }
+
+  /// 是否可编辑白板（M3 权限收窄；只控白板元素编辑，不控透明批注）。
+  ///
+  /// 判定顺序与服务端 `effectiveCanWrite` 对齐（2026-10「默认无权限」语义：
+  /// 后加入者默认只读，需主持人授权；free / present 一致）：
+  /// 1. 已被移除 → false（只读）；
+  /// 2. 角色未同步（空串；单机 / 旧引擎）→ true（本地放行）；
+  /// 3. grantedWrite → true（临时写权优先）；
+  /// 4. Host / CoHost → true（管理角色恒可写）；
+  /// 5. present 模式下的 Presenter → true（演示中唯一可写）；
+  /// 6. 其余（Participant / Viewer / Guest）→ false（默认只读）。
+  bool get canEdit {
+    if (_removed) {
+      return false;
+    }
+    if (selfRole.isEmpty) {
+      return true;
+    }
+    if (_room.grantedWrite) {
+      return true;
+    }
+    if (roleRank(selfRole) >= roleRank(roleCoHost)) {
+      return true;
+    }
+    if (presentMode && roleRank(selfRole) >= roleRank(rolePresenter)) {
+      return true;
+    }
+    return false;
+  }
+
+  /// 是否需要广播本端视口（M3 跟随）：有跟随者，或本端为演示者。
+  bool get needsViewportBroadcast =>
+      _followers.isNotEmpty ||
+      (presentMode && presenterId.isNotEmpty && presenterId == selfUserId);
+
+  /// 是否可对目标参与者授权 / 收回控制（CoHost+ 且目标低于 CoHost、
+  /// 非本人；服务端 invalid-target 规则的前置收窄）。
+  bool canGrantControlParticipant(String targetId, String targetRole) =>
+      canManageInteractions &&
+      targetId.isNotEmpty &&
+      targetId != selfUserId &&
+      roleRank(targetRole) < roleRank(roleCoHost);
+
+  /// 是否可移除目标参与者（CoHost+ 且层级严格高于目标；非本人）。
+  bool canRemoveParticipant(String targetId, String targetRole) =>
+      canManageInteractions &&
+      targetId.isNotEmpty &&
+      targetId != selfUserId &&
+      roleRank(selfRole) > roleRank(targetRole);
+
+  /// 角色层级（与服务端 `ROLE_RANK` 对齐：Host 5 > CoHost 4 > Presenter 3
+  /// > Participant 2 > Viewer 1 > Guest 0；未知角色 0）。
+  static int roleRank(String role) {
+    switch (role) {
+      case roleHost:
+        return 5;
+      case roleCoHost:
+        return 4;
+      case rolePresenter:
+        return 3;
+      case roleParticipant:
+        return 2;
+      case roleViewer:
+        return 1;
+      case roleGuest:
+        return 0;
+      default:
+        return 0;
+    }
+  }
+
+  /// 角色是否具备基础写权限（Host / CoHost / Presenter / Participant）。
+  static bool roleCanWrite(String role) =>
+      roleRank(role) >= roleRank(roleParticipant);
 
   // ---- 生命周期 -----------------------------------------------------------
 
@@ -431,6 +772,14 @@ class WbCollabService extends ChangeNotifier {
     _boardId = null;
     _sessionActor = '';
     _applyingRemote = false;
+    _heldLocks.clear();
+    _renewTimer?.cancel();
+    _renewTimer = null;
+    _followers.clear();
+    _resetInteractivePatches();
+    _removed = false;
+    _removedReason = '';
+    _recoveredNotified = false;
     final WbCollabEngine? engine = _engine;
     if (engine != null) {
       try {
@@ -440,8 +789,11 @@ class WbCollabService extends ChangeNotifier {
       }
     }
     _lastStatus = const WbSyncStatusData();
-    final bool hadRoom =
-        _room.participants.isNotEmpty || _room.locks.isNotEmpty;
+    final bool hadRoom = _room.participants.isNotEmpty ||
+        _room.locks.isNotEmpty ||
+        _room.mode.isNotEmpty ||
+        _followers.isNotEmpty ||
+        _removed;
     _room = const WbSyncRoomData();
     _setStatus(WbSyncStatus.offline);
     if (hadRoom) {
@@ -514,13 +866,352 @@ class WbCollabService extends ChangeNotifier {
     _setStatus(WbSyncStatus.error);
   }
 
+  // ---- M2 高频预览与软锁 --------------------------------------------------
+
+  /// 发送高频预览（光标 / 选区 / 笔迹 / 变换；可丢语义）。
+  ///
+  /// 转发引擎 `sync.sendPreview`；未 start / 引擎不可用 / 载荷缺 `kind`
+  /// 时返回 dropped（不抛出，不阻断本地交互）。
+  WbSyncPreviewResult sendPreview(Map<String, dynamic> preview) {
+    final WbCollabEngine? engine = _engine;
+    if (engine == null || _boardId == null) {
+      return const WbSyncPreviewResult(dropped: true);
+    }
+    try {
+      return engine.sendPreview(preview);
+    } catch (e) {
+      _lastError = e is WbCoreException ? '${e.code}: ${e.message}' : '$e';
+      return const WbSyncPreviewResult(dropped: true);
+    }
+  }
+
+  /// 请求元素软锁（acquire；授予 / 拒绝结果异步经锁回执）。
+  ///
+  /// 授予后 [isHoldingLock] 为 true 并自动续约；被拒触发 [onLockDenied]。
+  WbSyncLockResult acquireLock(String elementId) =>
+      _sendLock('acquire', elementId);
+
+  /// 释放元素软锁（release；同时停止对应续约）。
+  WbSyncLockResult releaseLock(String elementId) {
+    _heldLocks.remove(elementId);
+    _stopRenewTimerIfIdle();
+    return _sendLock('release', elementId);
+  }
+
+  /// 续约元素软锁（renew；持有期间由续约定时器自动调用）。
+  WbSyncLockResult renewLock(String elementId) => _sendLock('renew', elementId);
+
+  /// 手动重连当前房间（重连预算耗尽后的恢复入口）。
+  ///
+  /// 语义 = stop（disconnect，保留 boardId）+ start（同 boardId）：
+  /// connect → crdt.create → join → 轮询；未在房返回 false。
+  Future<bool> reconnect() async {
+    final String? boardId = _boardId;
+    if (boardId == null || boardId.isEmpty) {
+      return false;
+    }
+    await stop();
+    return start(boardId: boardId);
+  }
+
+  WbSyncLockResult _sendLock(String action, String elementId) {
+    final WbCollabEngine? engine = _engine;
+    if (engine == null || _boardId == null || elementId.isEmpty) {
+      return const WbSyncLockResult();
+    }
+    try {
+      return engine.lock(action: action, elementId: elementId);
+    } catch (e) {
+      _lastError = e is WbCoreException ? '${e.code}: ${e.message}' : '$e';
+      return const WbSyncLockResult();
+    }
+  }
+
+  /// 消费锁回执（drain 批次）：acquire 授予 → 记录持有并确保续约；
+  /// 被拒 → [onLockDenied]；release → 清除；renew 失败 → 视为丢失。
+  void _consumeLockAcks(List<dynamic> acks) {
+    for (final Object? item in acks) {
+      if (item is! Map) {
+        continue;
+      }
+      final Object? rawId = item['elementId'];
+      if (rawId is! String || rawId.isEmpty) {
+        continue;
+      }
+      final Object? rawAction = item['action'];
+      final String action = rawAction is String ? rawAction : '';
+      final bool ok = item['ok'] == true;
+      final bool granted = item['granted'] == true;
+      switch (action) {
+        case 'acquire':
+          if (ok && granted) {
+            _heldLocks.add(rawId);
+            _ensureRenewTimer();
+          } else {
+            _heldLocks.remove(rawId);
+            final Object? holder = item['holderUserId'];
+            onLockDenied?.call(
+              rawId,
+              holder is String && holder.isNotEmpty ? holder : null,
+            );
+          }
+        case 'release':
+          _heldLocks.remove(rawId);
+          _stopRenewTimerIfIdle();
+        case 'renew':
+          if (!(ok && granted)) {
+            _heldLocks.remove(rawId);
+            _stopRenewTimerIfIdle();
+          }
+        default:
+          break;
+      }
+    }
+  }
+
+  /// 启动续约定时器（幂等；持有锁期间每 [lockRenewInterval] 续约一轮）。
+  void _ensureRenewTimer() {
+    if (_renewTimer != null || _heldLocks.isEmpty) {
+      return;
+    }
+    _renewTimer = _renewTimerFactory(lockRenewInterval, _renewHeldLocks);
+  }
+
+  /// 续约全部持有锁（周期回调）。
+  void _renewHeldLocks() {
+    for (final String elementId in _heldLocks.toList()) {
+      renewLock(elementId);
+    }
+  }
+
+  /// 无持有锁时停止续约定时器。
+  void _stopRenewTimerIfIdle() {
+    if (_heldLocks.isNotEmpty) {
+      return;
+    }
+    _renewTimer?.cancel();
+    _renewTimer = null;
+  }
+
+  // ---- M3 互动请求（举手 / 授权 / 演示 / 移除 / 跟随） --------------------
+
+  /// 发送互动请求（M3；转发引擎 `sync.interactive`）。
+  ///
+  /// [action] 白名单 9 个：`raiseHand` / `lowerHand` / `grantControl` /
+  /// `revokeControl` / `startPresent` / `stopPresent` / `removeUser` /
+  /// `follow` / `unfollow`；[userId] 为目标用户（grantControl /
+  /// revokeControl / removeUser），[targetUserId] 为跟随目标（follow /
+  /// unfollow）。未 start / 引擎不可用 / 转发异常 → `requested:false`
+  /// （不抛出）；服务端受理结果异步经 `events().interactiveAcks` 回执，
+  /// 拒绝触发 [onInteractiveError]。
+  WbSyncInteractiveResult interactive({
+    required String action,
+    String? userId,
+    String? targetUserId,
+  }) {
+    final WbCollabEngine? engine = _engine;
+    if (engine == null || _boardId == null) {
+      return const WbSyncInteractiveResult();
+    }
+    try {
+      return engine.interactive(
+        action: action,
+        userId: userId,
+        targetUserId: targetUserId,
+      );
+    } catch (e) {
+      _lastError = e is WbCoreException ? '${e.code}: ${e.message}' : '$e';
+      return const WbSyncInteractiveResult();
+    }
+  }
+
+  /// 发起互动请求并入队本地补丁（ack 形状 `{action, ok, reason?}` 无
+  /// userId，按 action FIFO 结算；转发未受理不入队）。
+  WbSyncInteractiveResult _requestInteractiveWithPatch({
+    required String action,
+    String? userId,
+    required void Function() apply,
+  }) {
+    final WbSyncInteractiveResult result =
+        interactive(action: action, userId: userId);
+    if (result.requested) {
+      _pendingInteractivePatches.add(
+        _WbPendingInteractivePatch(action: action, apply: apply),
+      );
+    }
+    return result;
+  }
+
+  /// 举手（`interactive:raiseHand`；ack 确认后本地先行生效）。
+  WbSyncInteractiveResult raiseHand() => _requestInteractiveWithPatch(
+        action: 'raiseHand',
+        apply: () => _patchHandRaised = true,
+      );
+
+  /// 收手（`interactive:lowerHand`；ack 确认后本地先行生效）。
+  WbSyncInteractiveResult lowerHand() => _requestInteractiveWithPatch(
+        action: 'lowerHand',
+        apply: () => _patchHandRaised = false,
+      );
+
+  /// 授权临时写权（`interactive:grantControl`；ack 确认后本地先行生效）。
+  WbSyncInteractiveResult grantControl(String userId) =>
+      _requestInteractiveWithPatch(
+        action: 'grantControl',
+        userId: userId,
+        apply: () => _patchGrantedWrite[userId] = true,
+      );
+
+  /// 收回临时写权（`interactive:revokeControl`；ack 确认后本地先行生效）。
+  WbSyncInteractiveResult revokeControl(String userId) =>
+      _requestInteractiveWithPatch(
+        action: 'revokeControl',
+        userId: userId,
+        apply: () => _patchGrantedWrite[userId] = false,
+      );
+
+  /// 开始演示（`interactive:startPresent`；presenterId = 发起者；
+  /// ack 确认后本地先行生效）。
+  WbSyncInteractiveResult startPresent() => _requestInteractiveWithPatch(
+        action: 'startPresent',
+        apply: () {
+          _patchPresentMode = true;
+          _patchPresenterId = selfUserId;
+        },
+      );
+
+  /// 结束演示（`interactive:stopPresent`；ack 确认后本地先行生效）。
+  WbSyncInteractiveResult stopPresent() => _requestInteractiveWithPatch(
+        action: 'stopPresent',
+        apply: () {
+          _patchPresentMode = false;
+          _patchPresenterId = '';
+        },
+      );
+
+  /// 移除成员（`interactive:removeUser`）。
+  WbSyncInteractiveResult removeUser(String userId) =>
+      interactive(action: 'removeUser', userId: userId);
+
+  /// 跟随用户（`interactive:follow`；跟随帧消费见跟随控制器）。
+  WbSyncInteractiveResult follow(String targetUserId) =>
+      interactive(action: 'follow', targetUserId: targetUserId);
+
+  /// 停止跟随（`interactive:unfollow`）。
+  WbSyncInteractiveResult unfollow(String targetUserId) =>
+      interactive(action: 'unfollow', targetUserId: targetUserId);
+
+  /// 消费互动回执（drain 批次）：成功 → 结算最早的同类待定补丁并应用
+  /// （发起端本地确定性更新）；失败 → 丢弃同类待定补丁 + 触发
+  /// [onInteractiveError] 轻提示；坏载荷忽略。
+  void _consumeInteractiveAcks(List<dynamic> acks) {
+    for (final Object? item in acks) {
+      if (item is! Map) {
+        continue;
+      }
+      final Object? rawAction = item['action'];
+      final String action = rawAction is String ? rawAction : '';
+      if (item['ok'] == true) {
+        _settlePendingInteractive(action);
+        continue;
+      }
+      final Object? rawReason = item['reason'];
+      _dropPendingInteractive(action);
+      onInteractiveError?.call(action, rawReason is String ? rawReason : '');
+    }
+  }
+
+  /// 结算最早的同 action 待定补丁：应用并通知（无匹配时忽略）。
+  void _settlePendingInteractive(String action) {
+    for (int i = 0; i < _pendingInteractivePatches.length; i++) {
+      final _WbPendingInteractivePatch pending = _pendingInteractivePatches[i];
+      if (pending.action != action) {
+        continue;
+      }
+      _pendingInteractivePatches.removeAt(i);
+      pending.apply();
+      notifyListeners();
+      return;
+    }
+  }
+
+  /// 丢弃最早的同 action 待定补丁（ack 拒绝；无匹配时忽略）。
+  void _dropPendingInteractive(String action) {
+    for (int i = 0; i < _pendingInteractivePatches.length; i++) {
+      if (_pendingInteractivePatches[i].action == action) {
+        _pendingInteractivePatches.removeAt(i);
+        return;
+      }
+    }
+  }
+
+  /// 清空全部互动补丁（stop / 传输重连：旧连接状态已失效）。
+  void _resetInteractivePatches() {
+    _pendingInteractivePatches.clear();
+    _patchHandRaised = null;
+    _patchPresentMode = null;
+    _patchPresenterId = null;
+    _patchGrantedWrite.clear();
+  }
+
+  /// 消费投给本端的跟随事件（`incomingFollows`）：follow 增集合 /
+  /// unfollow 减集合；有变化才通知。
+  void _consumeIncomingFollows(List<dynamic> follows) {
+    bool changed = false;
+    for (final Object? item in follows) {
+      if (item is! Map) {
+        continue;
+      }
+      final Object? rawFollower = item['followerUserId'];
+      if (rawFollower is! String || rawFollower.isEmpty) {
+        continue;
+      }
+      switch (item['action']) {
+        case 'follow':
+          changed = _followers.add(rawFollower) || changed;
+        case 'unfollow':
+          changed = _followers.remove(rawFollower) || changed;
+        default:
+          break;
+      }
+    }
+    if (changed) {
+      notifyListeners();
+    }
+  }
+
+  /// 消费 `room:removed`（一次性）：进入只读态、停止引擎重连并通知。
+  void _consumeRemoved(Map<String, dynamic> removed) {
+    if (removed.isEmpty || _removed) {
+      return;
+    }
+    final Object? rawReason = removed['reason'];
+    _removed = true;
+    _removedReason = rawReason is String ? rawReason : '';
+    // 被移除后停止重连：主动断开引擎（socket.io 自动重连 / 被动重连恢复都会
+    // 重新 join 已拒绝的房间，导致「被踢仍在线」）。不走 stop()——stop 会清空
+    // removed 只读横幅；重新入场由下一次 start() 重建连接。
+    final WbCollabEngine? engine = _engine;
+    if (engine != null) {
+      try {
+        engine.disconnect();
+      } catch (e) {
+        _lastError = e is WbCoreException ? '${e.code}: ${e.message}' : '$e';
+      }
+    }
+    _setStatus(WbSyncStatus.offline);
+    notifyListeners();
+  }
+
   // ---- 画布出口 -----------------------------------------------------------
 
   /// 画布出口：本地落定提交（与撤销栈同批的 diff）→ op → 发送。
   ///
-  /// 逐元素生成 op：`el:{id}:data`（value = 元素契约 JSON，复用
-  /// [WbBoardFileCodec.encodeElement]；专业元素整元素处理）/ 删除
-  /// `el:{id}:exists=false`；经 `crdt.applyLocal(docId, op)` 补齐
+  /// 逐元素生成 op：`el:{id}:data`（value = 元素契约 JSON 内嵌
+  /// `pageId`，复用 [WbBoardFileCodec.encodeElement]；专业元素整元素
+  /// 处理——服务端 parseOp 只保留 6 字段且不解释 value，故路由信息
+  /// 必须内嵌 value）/ 删除 `el:{id}:exists=false`（线格式不变，接收端
+  /// 按元素 id 跨页查找路由）；经 `crdt.applyLocal(docId, op)` 补齐
   /// actor/seq/timestamp（actor = [sessionActor]）后 `sync.sendOperation`
   /// 直发（离线自动入引擎 pending 队列）。
   ///
@@ -538,12 +1229,12 @@ class WbCollabService extends ChangeNotifier {
       if (element.id.isEmpty) {
         continue;
       }
-      _applyLocalAndSend(
-        engine,
-        docId,
-        'el:${element.id}:data',
-        WbBoardFileCodec.encodeElement(element),
-      );
+      final Map<String, dynamic> value =
+          WbBoardFileCodec.encodeElement(element);
+      if (batch.pageId.isNotEmpty) {
+        value['pageId'] = batch.pageId;
+      }
+      _applyLocalAndSend(engine, docId, 'el:${element.id}:data', value);
     }
     for (final String id in batch.removedIds) {
       if (id.isEmpty) {
@@ -551,6 +1242,23 @@ class WbCollabService extends ChangeNotifier {
       }
       _applyLocalAndSend(engine, docId, 'el:$id:exists', false);
     }
+  }
+
+  /// 页结构出口：本地页新建 / 删除 / 重命名 / 排序 → `pg:{pageId}:{field}`。
+  ///
+  /// 与元素 op 同一可靠通道（board:ops → op log 回放供迟到入房者重建
+  /// 页结构）；字段语义见 [onRemotePageOp]。未 start / 防回发窗口内
+  /// 静默跳过。
+  void handlePageOp(String pageId, String field, Object? value) {
+    if (pageId.isEmpty || field.isEmpty || _applyingRemote) {
+      return;
+    }
+    final WbCollabEngine? engine = _engine;
+    final String? docId = _boardId;
+    if (engine == null || docId == null) {
+      return;
+    }
+    _applyLocalAndSend(engine, docId, 'pg:$pageId:$field', value ?? true);
   }
 
   void _applyLocalAndSend(
@@ -594,8 +1302,21 @@ class WbCollabService extends ChangeNotifier {
         _lastPreviewCount = data.previews.length;
         onRemotePreviews?.call(data.previews);
       }
+      if (data.room.lockAcks.isNotEmpty) {
+        _consumeLockAcks(data.room.lockAcks);
+      }
+      if (data.interactiveAcks.isNotEmpty) {
+        _consumeInteractiveAcks(data.interactiveAcks);
+      }
+      if (data.incomingFollows.isNotEmpty) {
+        _consumeIncomingFollows(data.incomingFollows);
+      }
       _applyRoomData(data.room);
       _applyStatusData(data.status);
+      if (data.removed.isNotEmpty) {
+        // 终态：进入只读并断开引擎；置于状态应用之后，offline 不被同批旧状态覆盖。
+        _consumeRemoved(data.removed);
+      }
     } catch (e) {
       // 单次轮询失败不降级状态；由后续 tick / 状态刷新校正。
       _lastError = e is WbCoreException ? '${e.code}: ${e.message}' : '$e';
@@ -604,17 +1325,23 @@ class WbCollabService extends ChangeNotifier {
 
   /// 应用一批生效远端 op（`events().ops`；引擎已按 LWW 过滤）。
   ///
-  /// `el:{id}:data` → [onRemoteElement]（画布 upsert）；
-  /// `el:{id}:exists=false` → [onRemoteRemove]（画布删除）；
-  /// 未知键（M2 字段级 op 等）M1 忽略。应用期间 [isApplyingRemote] 为
-  /// true（画布出口跳过，防回发）；完成后按最近快照重算状态（清掉
-  /// 「应用远端」临时 syncing）。
+  /// `pg:{pageId}:{field}` → [onRemotePageOp]（先于同批元素 op 应用，
+  /// 保证目标页先落地）；`el:{id}:data` → [onRemoteElement]（画布按
+  /// value 内嵌 `pageId` 路由 upsert）；`el:{id}:exists=false` →
+  /// [onRemoteRemove]（画布按元素 id 跨页查找删除）；未知键（M2 字段级
+  /// op 等）忽略。应用期间 [isApplyingRemote] 为 true（画布出口跳过，
+  /// 防回发）；完成后按最近快照重算状态（清掉「应用远端」临时 syncing）。
   void _applyRemoteOps(List<Map<String, dynamic>> ops) {
-    final List<WbCanvasElement> upserts = <WbCanvasElement>[];
+    final List<_WbRemoteUpsert> upserts = <_WbRemoteUpsert>[];
     final List<String> removes = <String>[];
     for (final Map<String, dynamic> op in ops) {
       final Object? rawKey = op['key'];
       if (rawKey is! String) {
+        continue;
+      }
+      final _WbPageOpKey? pageOp = _WbPageOpKey.parse(rawKey);
+      if (pageOp != null) {
+        onRemotePageOp?.call(pageOp.pageId, pageOp.field, op['value']);
         continue;
       }
       final _WbElementOpKey? parsed = _WbElementOpKey.parse(rawKey);
@@ -623,9 +1350,9 @@ class WbCollabService extends ChangeNotifier {
       }
       switch (parsed.field) {
         case 'data':
-          final WbCanvasElement? element = _decodeRemoteElement(op['value']);
-          if (element != null) {
-            upserts.add(element);
+          final _WbRemoteUpsert? upsert = _decodeRemoteElement(op['value']);
+          if (upsert != null) {
+            upserts.add(upsert);
           }
         case 'exists':
           if (op['value'] == false) {
@@ -643,8 +1370,8 @@ class WbCollabService extends ChangeNotifier {
       _setStatus(WbSyncStatus.syncing);
     }
     try {
-      for (final WbCanvasElement element in upserts) {
-        onRemoteElement?.call(element);
+      for (final _WbRemoteUpsert upsert in upserts) {
+        onRemoteElement?.call(upsert.element, pageId: upsert.pageId);
       }
       for (final String id in removes) {
         onRemoteRemove?.call(id);
@@ -658,14 +1385,21 @@ class WbCollabService extends ChangeNotifier {
     notifyListeners();
   }
 
-  WbCanvasElement? _decodeRemoteElement(Object? value) {
+  _WbRemoteUpsert? _decodeRemoteElement(Object? value) {
     if (value is! Map) {
       return null;
     }
     try {
-      final WbCanvasElement element =
-          WbBoardFileCodec.decodeElement(Map<String, dynamic>.from(value));
-      return element.id.isEmpty ? null : element;
+      final Map<String, dynamic> json = Map<String, dynamic>.from(value);
+      final WbCanvasElement element = WbBoardFileCodec.decodeElement(json);
+      if (element.id.isEmpty) {
+        return null;
+      }
+      final Object? rawPageId = json['pageId'];
+      return _WbRemoteUpsert(
+        element,
+        rawPageId is String ? rawPageId : '',
+      );
     } catch (_) {
       return null; // 坏载荷忽略，不阻断同批其他 op。
     }
@@ -726,7 +1460,12 @@ class WbCollabService extends ChangeNotifier {
   void _applyStatusData(WbSyncStatusData data) {
     final WbSyncStatus next = _mapStatus(data);
     final bool dataChanged = !_sameStatusData(_lastStatus, data);
+    final bool reconnected = data.reconnectCount > _lastStatus.reconnectCount;
     _lastStatus = data;
+    if (reconnected) {
+      // 传输重连：旧连接的互动补丁已无回执可结算，清空等待新快照。
+      _resetInteractivePatches();
+    }
     if (_status != next) {
       _status = next;
       notifyListeners();
@@ -735,17 +1474,72 @@ class WbCollabService extends ChangeNotifier {
     }
   }
 
-  /// 合并 room 快照：有实质变化才更新并通知（避免每 tick 重刷 UI）。
+  /// 合并 room 快照：有实质变化才更新并通知（避免每 tick 重刷 UI）；
+  /// 先按新名单对 [followers] 求交清理（跟随者离开即剔除；名单为空时
+  /// 保守不清理，等待后续快照），并对 grantedWrite 补丁裁剪已离开目标。
   void _applyRoomData(WbSyncRoomData room) {
+    final bool prunedFollowers = _pruneFollowers(room);
+    final bool prunedPatches = _pruneGrantedWritePatches(room);
     if (_sameRoom(_room, room)) {
+      if (prunedFollowers || prunedPatches) {
+        notifyListeners();
+      }
       return;
     }
     _room = room;
     notifyListeners();
   }
 
+  /// 与给定快照的参与者名单求交：剔除已不在名单中的跟随者；返回是否
+  /// 发生剔除（名单为空返回 false，避免误清）。
+  bool _pruneFollowers(WbSyncRoomData room) {
+    if (_followers.isEmpty) {
+      return false;
+    }
+    final Set<String> online = <String>{};
+    for (final Object? item in room.participants) {
+      final WbCollabParticipant? participant = _parseParticipant(item);
+      if (participant != null) {
+        online.add(participant.id);
+      }
+    }
+    if (online.isEmpty) {
+      return false;
+    }
+    final int before = _followers.length;
+    _followers.removeWhere((String id) => !online.contains(id));
+    return _followers.length != before;
+  }
+
+  /// 对 grantedWrite 补丁裁剪：剔除已不在名单中的目标；返回是否发生
+  /// 裁剪（无补丁 / 名单为空返回 false，避免误清）。
+  bool _pruneGrantedWritePatches(WbSyncRoomData room) {
+    if (_patchGrantedWrite.isEmpty) {
+      return false;
+    }
+    final Set<String> online = <String>{};
+    for (final Object? item in room.participants) {
+      final WbCollabParticipant? participant = _parseParticipant(item);
+      if (participant != null) {
+        online.add(participant.id);
+      }
+    }
+    if (online.isEmpty) {
+      return false;
+    }
+    final int before = _patchGrantedWrite.length;
+    _patchGrantedWrite.removeWhere((String id, bool value) => !online.contains(id));
+    return _patchGrantedWrite.length != before;
+  }
+
   static bool _sameRoom(WbSyncRoomData a, WbSyncRoomData b) {
     if (a.mode != b.mode ||
+        a.selfRole != b.selfRole ||
+        a.presenterId != b.presenterId ||
+        a.hostUserId != b.hostUserId ||
+        a.grantedWrite != b.grantedWrite ||
+        a.checkpointStatus != b.checkpointStatus ||
+        a.recovered != b.recovered ||
         a.selfUserId != b.selfUserId ||
         a.locks.length != b.locks.length ||
         a.participants.length != b.participants.length) {
@@ -757,15 +1551,46 @@ class WbCollabService extends ChangeNotifier {
         return false;
       }
     }
+    return _sameLocks(a.locks, b.locks);
+  }
+
+  /// 锁表深度比较（锁授予 / 释放 / TTL 过期时触发刷新）。
+  static bool _sameLocks(Map<String, dynamic> a, Map<String, dynamic> b) {
+    for (final MapEntry<String, dynamic> entry in a.entries) {
+      final Object? mine = entry.value;
+      final Object? theirs = b[entry.key];
+      if (mine is Map && theirs is Map) {
+        if (mine['userId'] != theirs['userId'] ||
+            mine['expiresAt'] != theirs['expiresAt']) {
+          return false;
+        }
+        continue;
+      }
+      if (mine != theirs) {
+        return false;
+      }
+    }
     return true;
   }
 
-  /// 参与者条目身份键（轻量比较用；Map 取 id + role，其余字符串化）。
+  /// 参与者条目身份键（轻量比较用；Map 取 id + role + M3 标记，
+  /// 其余字符串化）。
   static String _participantIdentity(Object? item) {
     if (item is Map) {
-      return '${item['userId'] ?? item['id'] ?? ''}/${item['role'] ?? ''}';
+      return '${item['userId'] ?? item['id'] ?? ''}/${item['role'] ?? ''}'
+          '/${item['handRaised'] == true ? 'H' : ''}'
+          '${item['grantedWrite'] == true ? 'G' : ''}';
     }
     return '$item';
+  }
+
+  /// 锁条目持有者解析（`{userId, ...}` 对象；旧形态 / 坏载荷返回 null）。
+  static String? _lockHolderOf(Object? entry) {
+    if (entry is Map) {
+      final Object? userId = entry['userId'];
+      return userId is String && userId.isNotEmpty ? userId : null;
+    }
+    return null;
   }
 
   static bool _sameStatusData(WbSyncStatusData a, WbSyncStatusData b) =>
@@ -821,8 +1646,19 @@ class WbCollabService extends ChangeNotifier {
   void dispose() {
     _pollTimer?.cancel();
     _pollTimer = null;
+    _renewTimer?.cancel();
+    _renewTimer = null;
     super.dispose();
   }
+}
+
+/// 待结算的互动补丁（ack 载荷 `{action, ok, reason?}` 无 userId；按
+/// action FIFO 配对，成功应用 / 失败丢弃）。
+class _WbPendingInteractivePatch {
+  const _WbPendingInteractivePatch({required this.action, required this.apply});
+
+  final String action;
+  final void Function() apply;
 }
 
 /// 元素 op 键解析（`el:{id}:{field}`；M2 字段级前向兼容）。
@@ -846,5 +1682,71 @@ class _WbElementOpKey {
       return null;
     }
     return _WbElementOpKey(id, key.substring(sep + 1));
+  }
+}
+
+/// 页结构 op 键解析（`pg:{pageId}:{field}`；field ∈ create / delete /
+/// rename / move）。
+class _WbPageOpKey {
+  const _WbPageOpKey(this.pageId, this.field);
+
+  final String pageId;
+  final String field;
+
+  /// 解析 `pg:{pageId}:{field}`；非页键返回 null（pageId 按最后一个
+  /// `:` 切分）。
+  static _WbPageOpKey? parse(String key) {
+    if (!key.startsWith('pg:')) {
+      return null;
+    }
+    final int sep = key.lastIndexOf(':');
+    if (sep <= 2 || sep >= key.length - 1) {
+      return null;
+    }
+    final String pageId = key.substring(3, sep);
+    if (pageId.isEmpty) {
+      return null;
+    }
+    return _WbPageOpKey(pageId, key.substring(sep + 1));
+  }
+}
+
+/// 远端元素 upsert 载荷（元素 + 目标页 id；页 id 空串 = 未携带）。
+class _WbRemoteUpsert {
+  const _WbRemoteUpsert(this.element, this.pageId);
+
+  final WbCanvasElement element;
+  final String pageId;
+}
+
+/// 角色名常量（与服务端 `ROLE_RANK` 键对齐；中文字面量见参与者面板）。
+const String roleGuest = 'Guest';
+const String roleViewer = 'Viewer';
+const String roleParticipant = 'Participant';
+const String rolePresenter = 'Presenter';
+const String roleCoHost = 'CoHost';
+const String roleHost = 'Host';
+
+/// 交互请求拒绝原因原码 → 中文提示（M3；未知码回退通用文案）。
+String wbInteractiveReasonLabel(String reason) {
+  switch (reason) {
+    case 'not-in-room':
+      return '不在房间中';
+    case 'forbidden':
+      return '权限不足';
+    case 'invalid-argument':
+      return '请求参数无效';
+    case 'user-not-in-room':
+      return '目标用户不在房间';
+    case 'invalid-target':
+      return '目标用户不支持该操作';
+    case 'not-presenting':
+      return '当前未处于演示状态';
+    case 'payload-too-large':
+      return '请求载荷过大';
+    case 'notAllowed':
+      return '操作不被允许';
+    default:
+      return '操作失败';
   }
 }

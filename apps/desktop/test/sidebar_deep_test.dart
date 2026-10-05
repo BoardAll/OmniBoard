@@ -34,7 +34,7 @@ class _BoardFixture {
     ffi = WbFfiService(candidatePaths: const <String>['__wb_missing__.dll'])
       ..initialize();
     board = WbBoardState(ffi: ffi)..open('b1', name: name);
-    pages = WbPageState(ffi: ffi)..attach(board.board!);
+    pages = WbPageState(ops: WbFfiPageOps(ffi))..attach(board.board!);
     selection = WbSelectionState();
   }
 
@@ -67,6 +67,8 @@ Widget _sidebarApp(
   _BoardFixture fx, {
   VoidCallback? onOpenAiPanel,
   bool initiallyCollapsed = false,
+  bool canEdit = true,
+  VoidCallback? onBlockedEdit,
 }) {
   return _withProviders(
     fx,
@@ -79,6 +81,8 @@ Widget _sidebarApp(
               child: Sidebar(
                 initiallyCollapsed: initiallyCollapsed,
                 onOpenAiPanel: onOpenAiPanel,
+                canEdit: canEdit,
+                onBlockedEdit: onBlockedEdit,
               ),
             ),
             const VerticalDivider(width: 1),
@@ -724,6 +728,121 @@ void main() {
         findsOneWidget,
       );
       expect(find.text('暂无元素'), findsOneWidget);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // M3 只读收窄（canEdit=false：页面 / 图层编辑入口统一拦截）
+  // -------------------------------------------------------------------------
+
+  group('M3 只读收窄 canEdit=false', () {
+    testWidgets('页面编辑入口全部被拦（新建 / 菜单 / 快捷键 / 拖拽）',
+        (WidgetTester tester) async {
+      final _BoardFixture fx = _BoardFixture();
+      addTearDown(fx.dispose);
+      fx.pages.addPage();
+      int blocked = 0;
+      await _pumpSidebar(
+        tester,
+        _sidebarApp(fx, canEdit: false, onBlockedEdit: () => blocked++),
+      );
+      expect(fx.pages.pages.length, 2);
+
+      // 分区头「新建页面」。
+      await tester.tap(find.byKey(const ValueKey<String>('pages-add')));
+      await tester.pumpAndSettle();
+      expect(fx.pages.pages.length, 2);
+
+      // 底部「添加页面」。
+      await tester.tap(find.text('添加页面'));
+      await tester.pumpAndSettle();
+      expect(fx.pages.pages.length, 2);
+
+      // 右键菜单「复制页面」（编辑动作统一守卫）。
+      await _openPageMenu(tester, 'b1-page-1');
+      await tester.tap(find.text('复制页面'));
+      await tester.pumpAndSettle();
+      expect(fx.pages.pages.length, 2);
+
+      // 键盘 F2 / Delete（选中页后触发）。
+      await tester.tap(
+        find.byKey(const ValueKey<String>('page-card-b1-page-2')),
+      );
+      await tester.pumpAndSettle();
+      await tester.sendKeyEvent(LogicalKeyboardKey.f2);
+      await tester.pumpAndSettle();
+      expect(find.text('重命名页面'), findsNothing);
+      await tester.sendKeyEvent(LogicalKeyboardKey.delete);
+      await tester.pumpAndSettle();
+      expect(fx.pages.pages.length, 2);
+
+      // 拖拽排序（maxSimultaneousDrags=0：顺序不变）。
+      final Finder handle =
+          find.byKey(const ValueKey<String>('page-drag-b1-page-2'));
+      await tester.drag(handle, const Offset(0, -80));
+      await tester.pumpAndSettle();
+      expect(
+        fx.pages.pages.map((WbPage page) => page.id).toList(),
+        <String>['b1-page-1', 'b1-page-2'],
+      );
+
+      expect(blocked, 5);
+    });
+
+    testWidgets('图层面板行操作被拦（锁定 / 可见 / 重命名 / 菜单删除）',
+        (WidgetTester tester) async {
+      final _BoardFixture fx = _BoardFixture();
+      addTearDown(fx.dispose);
+      int blocked = 0;
+      await _pumpSidebar(
+        tester,
+        _sidebarApp(fx, canEdit: false, onBlockedEdit: () => blocked++),
+      );
+
+      // 锁定按钮：点击后仍保持未锁定（tooltip 不变）。
+      final Finder lockButton =
+          find.byKey(const ValueKey<String>('layer-lock-b1-page-1-el-1'));
+      expect(tester.widget<IconButton>(lockButton).tooltip, '锁定');
+      await tester.tap(lockButton);
+      await tester.pumpAndSettle();
+      expect(tester.widget<IconButton>(lockButton).tooltip, '锁定');
+
+      // 可见按钮：图标保持可见。
+      final Finder visibleButton =
+          find.byKey(const ValueKey<String>('layer-visible-b1-page-1-el-1'));
+      WbVisibilityIcon iconOf(Finder of) => tester.widget<WbVisibilityIcon>(
+            find.descendant(of: of, matching: find.byType(WbVisibilityIcon)),
+          );
+      expect(iconOf(visibleButton).visible, isTrue);
+      await tester.tap(visibleButton);
+      await tester.pumpAndSettle();
+      expect(iconOf(visibleButton).visible, isTrue);
+
+      // 双击进入重命名：被拦（未出现输入框）。
+      final Finder name =
+          find.byKey(const ValueKey<String>('layer-name-b1-page-1-el-2'));
+      await tester.tap(name);
+      await tester.pump(const Duration(milliseconds: 80));
+      await tester.tap(name);
+      await tester.pump();
+      expect(
+        find.byKey(const ValueKey<String>('layer-rename-b1-page-1-el-2')),
+        findsNothing,
+      );
+
+      // 行菜单「删除」：被拦（行保留）。
+      await tester.tap(
+        find.byKey(const ValueKey<String>('layer-menu-b1-page-1-el-1')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('删除'));
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey<String>('layer-row-b1-page-1-el-1')),
+        findsOneWidget,
+      );
+
+      expect(blocked, 4);
     });
   });
 }

@@ -1,16 +1,19 @@
 #pragma once
 
-// sync/transport.h — collaboration transport seam of the sync domain (M1).
+// sync/transport.h — collaboration transport seam of the sync domain
+// (M1/M2/M3).
 // Owns: core/src/sync.
 //
 // reserved::Transport (providers.h) is the long-term, transport-agnostic
 // contract from《互动白板预留接口设计》M10.1. The sync domain needs a few
-// more capabilities than its five base methods offer (board join, reliable
-// batch send with ack bookkeeping, inbound event drain, failure reclaim),
-// so wb::sync::Transport extends it. SocketIOTransport is the production
-// implementation (sioxx); tests swap in a FakeTransport through
-// SetTransportFactory (catch_discover_tests runs every TEST_CASE in its own
-// process, so a per-process factory install is isolated).
+// more capabilities than its five base methods offer (board join with a
+// rejoin watermark, reliable batch send with ack bookkeeping, software-lock
+// transitions, interactive-mode requests, checkpoint upload, inbound event
+// drain, failure reclaim), so wb::sync::Transport extends it.
+// SocketIOTransport is the production implementation (sioxx);
+// tests swap in a FakeTransport through SetTransportFactory
+// (catch_discover_tests runs every TEST_CASE in its own process, so a
+// per-process factory install is isolated).
 //
 // Threading contract: every method is callable from any thread and
 // implementations synchronize internally. Implementations must never call
@@ -48,10 +51,14 @@ class Transport : public reserved::Transport {
                             const std::string& boardId,
                             const std::string& clientVersion) = 0;
 
-  /// Joins `boardId` (board:join + ack). The ack lands on the inbound queue
-  /// as a "board:joinAck" event. Returns false when not connected.
+  /// Joins `boardId` (board:join + ack). `lastSeenVersion` is the re-join
+  /// watermark `{actor: contiguousSeq}`: an empty object (first join) asks
+  /// the server for a full replay, a populated vector only for the delta
+  /// after those seqs. The ack lands on the inbound queue as a
+  /// "board:joinAck" event. Returns false when not connected.
   virtual bool joinBoard(const std::string& boardId,
-                         const std::string& pageId) = 0;
+                         const std::string& pageId,
+                         const nlohmann::json& lastSeenVersion) = 0;
 
   /// Enqueues one CRDT op for reliable delivery: 100 ms batching window,
   /// ack with a 3 s timeout and up to 3 resends, then the op moves to the
@@ -61,6 +68,29 @@ class Transport : public reserved::Transport {
   /// Offers a volatile preview to the depth-1 hysteresis slot (a newer value
   /// replaces the un-sent older one; flushed while connected).
   virtual bool sendPreview(const nlohmann::json& payload) = 0;
+
+  /// Requests one software-lock transition (M2 D2-C). `payload` carries
+  /// `{action: acquire|release|renew, elementId}`; the transport emits
+  /// `lock:acquire` / `lock:release` / `lock:renew` with an ack callback.
+  /// The ack lands on the inbound queue as a "lock:reply" event. Returns
+  /// false when not connected (or the action is unknown).
+  virtual bool sendLock(const nlohmann::json& payload) = 0;
+
+  /// Requests one interactive-mode action (M3 T3.2). `payload` carries
+  /// `{action, userId?, targetUserId?}`; the nine known actions emit
+  /// `interactive:<action>` with `{}` (raiseHand / lowerHand / startPresent /
+  /// stopPresent), `{userId}` (grantControl / revokeControl / removeUser) or
+  /// `{targetUserId}` (follow / unfollow). The per-request ack lands on the
+  /// inbound queue as an "interactive:reply" event. Returns false when not
+  /// connected (or the action / a required field is missing).
+  virtual bool sendInteractive(const nlohmann::json& payload) = 0;
+
+  /// Uploads one checkpoint blob (M3 T3.5): emits `board:checkpoint` with
+  /// `{stateVector, payload}`. The ack lands on the inbound queue as a
+  /// "checkpoint:reply" event — `{ok:true}` on acceptance, `{ok:false,
+  /// reason:"timeout"}` when the ack deadline elapses unanswered. Returns
+  /// false when not connected.
+  virtual bool sendCheckpoint(const nlohmann::json& payload) = 0;
 
   /// Takes every inbound event queued since the last drain (drain semantics).
   virtual std::vector<InboundEvent> drainInbound() = 0;
@@ -74,6 +104,19 @@ class Transport : public reserved::Transport {
   /// Reconnects observed since connectBoard (0 = never reconnected).
   virtual int reconnectCount() const = 0;
 };
+
+/// M3 T3.2 interactive action → wire mapping, shared by the Socket.IO
+/// transport, the fakes and their tests (single source of truth). Returns
+/// the event name "interactive:<action>" for the nine known actions
+/// (raiseHand / lowerHand / startPresent / stopPresent / grantControl /
+/// revokeControl / removeUser / follow / unfollow), "" otherwise.
+const char* InteractiveWireEvent(const std::string& action);
+
+/// The extra payload key one interactive action carries: "userId" for
+/// grantControl / revokeControl / removeUser, "targetUserId" for follow /
+/// unfollow, "" when the action carries no extra field. nullptr for unknown
+/// actions.
+const char* InteractiveWireField(const std::string& action);
 
 /// Factory used by the sync domain to create transports; tests install a
 /// fake one. Returns a fresh instance per call.

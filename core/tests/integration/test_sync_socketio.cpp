@@ -148,7 +148,7 @@ TEST_CASE("sync socketio: live connect/join/sendOperation/events round trip",
         return peer.getState() == wb::reserved::TransportState::Connected;
       },
       15s));
-  REQUIRE(peer.joinBoard(boardId, "p1"));
+  REQUIRE(peer.joinBoard(boardId, "p1", nlohmann::json::object()));
 
   bool joinAckSeen = false;
   std::vector<std::string> peerEvents;

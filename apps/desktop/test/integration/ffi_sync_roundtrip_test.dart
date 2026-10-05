@@ -3,8 +3,10 @@
 /// 链路（《互动白板实时协同设计文档》§8）：
 /// 本地 `services/realtime`（node dist/server.js）← C++ 引擎真实
 /// socket.io 客户端（connect / join / sendOperation / events）↔ node 探针
-/// 作为第二客户端（服务端广播排除发送者，故探针收 `board:ops` 验证发送
-/// 方向；探针回发一条 op 验证接收方向经桌面 events drain 回流）。
+/// 作为对端客户端（首入自举 Host；服务端广播排除发送者，故探针收 `board:ops`
+/// 验证发送方向；探针回发一条 op 验证接收方向经桌面 events drain 回流）。
+/// M3 默认无权限（2026-10）：后加入的桌面端默认只读——探针观测入房后授权
+/// 其写入（interactive:grantControl），桌面端等 grantedWrite 折叠后再落定提交。
 ///
 /// 门槛：DLL 缺失（`WB_REQUIRE_CORE_DLL=1` 时直接抛错，契约同
 /// ffi_support.dart）+ 未显式 `WB_REALTIME_E2E=1` / node 不可用时跳过。
@@ -200,7 +202,8 @@ void main() {
         connectTimeout: const Duration(seconds: 15),
       );
       final List<WbCanvasElement> received = <WbCanvasElement>[];
-      service.onRemoteElement = received.add;
+      service.onRemoteElement =
+          (WbCanvasElement element, {String? pageId}) => received.add(element);
       addTearDown(() async {
         await service.stop();
         service.dispose();
@@ -215,6 +218,19 @@ void main() {
       );
       expect(service.status, WbSyncStatus.online);
       expect(service.sessionActor, isNotEmpty);
+
+      // 3.1) M3 默认无权限（2026-10）：后加入者默认只读——等对端探针（自举 Host）
+      // 观测入房后授权（interactive:grantControl → roleChanged 单播折叠）。
+      final bool writeGranted = await _waitUntil(
+        () => service.grantedWrite,
+        timeout: const Duration(seconds: 30),
+      );
+      expect(
+        writeGranted,
+        isTrue,
+        reason: '30s 内未获得写授权（grantedWrite=true；'
+            'lastError=${service.lastError}）',
+      );
 
       // 4) 发送方向：本地落定提交 → 服务端广播 → 探针收到。
       final WbCanvasElement element = WbCanvasElement(

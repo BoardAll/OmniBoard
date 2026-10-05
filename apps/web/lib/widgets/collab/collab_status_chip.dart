@@ -1,8 +1,11 @@
-/// 协作连接状态 chip（编辑页 AppBar；W1 协作层 / T1.8）。
+/// 协作状态 chip（编辑页 AppBar；W1 协作层 / T1.8 + M3 演示模式 / T3.4）。
 ///
-/// 展示 [WbRealtimeStatus] 中文状态：
+/// [WbCollabStatusChip] 展示 [WbRealtimeStatus] 中文状态：
 /// - `idle`：隐藏（协作未启用 → 单机模式，功能零阻塞，§9）；
 /// - `connecting` / `connected` / `reconnecting` / `disconnected`：显示对应状态。
+///
+/// [WbPresentModeChip]（M3）：房间处于演示模式（`interactive:modeChanged` /
+/// `board:joined.mode`）时展示「演示中」，`free` / 未加入时隐藏。
 library;
 
 import 'package:flutter/material.dart';
@@ -69,5 +72,34 @@ class WbCollabStatusChip extends StatelessWidget {
       WbRealtimeStatus.reconnecting => '连接中断，正在重连…$suffix',
       WbRealtimeStatus.disconnected => '协作服务未连接$suffix',
     };
+  }
+}
+
+/// 演示模式 chip（M3）：`present` 态展示「演示中」（含演示者提示）。
+class WbPresentModeChip extends StatelessWidget {
+  /// 创建 chip。
+  const WbPresentModeChip({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final WbRealtimeService realtime = context.watch<WbRealtimeService>();
+    if (!realtime.isPresenting) {
+      return const SizedBox.shrink();
+    }
+    final WbThemeColors colors = context.wbColors;
+    final String? presenterId = realtime.presenterId;
+    final String tooltip =
+        presenterId == null ? '房间处于演示模式' : '房间处于演示模式 · 演示者 $presenterId';
+    return Tooltip(
+      message: tooltip,
+      child: Chip(
+        key: const Key('wb-present-mode-chip'),
+        avatar: Icon(LinearIcons.visible, size: 16, color: colors.primary),
+        label: const Text('演示中'),
+        labelStyle: Theme.of(context).textTheme.bodySmall?.copyWith(color: colors.primary),
+        side: BorderSide(color: colors.primary.withValues(alpha: 0.4)),
+        backgroundColor: colors.primary.withValues(alpha: 0.10),
+      ),
+    );
   }
 }

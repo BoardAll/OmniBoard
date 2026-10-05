@@ -65,6 +65,7 @@ export const ELEMENT_TYPES = [
   'sticky',
   'text',
   'shape',
+  'drawing',
   'connector',
   'image',
   'frame',

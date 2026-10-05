@@ -1,7 +1,8 @@
 #pragma once
 
 // tests/unit/sync/fake_transport.h — deterministic transport double for the
-// sync domain (M1 T1.1).
+// sync domain (M1 T1.1; M2 T2b adds lock + re-join watermark observations;
+// M3 T3.2/T3.5 adds the interactive channel + checkpoint upload).
 //
 // The fake completes synchronously: connectBoard lands "Connected" right
 // away, so the sync-domain assertions keep their pre-M1 semantics (the old
@@ -14,6 +15,11 @@
 //   InstallFakeTransport();                       // first line of the case
 //   FakePushInbound("board:ops", opsArray);       // feed the inbound queue
 //   FakeQueueFailure(op);                         // simulate exhausted acks
+//   FakeQueueLockReply(ackPayload);               // preload a lock:reply ack
+//   FakeQueueInteractiveReply(ackPayload);        // preload an interactive:reply
+//   FakeQueueCheckpointReply(ackPayload);         // preload a checkpoint:reply
+//   FakeState().state = ...::Reconnecting;        // simulate a drop/recover
+//                                                 // (Events drives re-join)
 
 #include <memory>
 #include <string>
@@ -33,6 +39,9 @@ struct FakeTransportState {
   bool joinAccepted = true;      // joinBoard outcome
   bool reliableAccepted = true;  // sendReliable outcome
   bool previewAccepted = true;   // sendPreview outcome
+  bool lockAccepted = true;      // sendLock outcome
+  bool interactiveAccepted = true;  // sendInteractive outcome (M3 T3.2)
+  bool checkpointAccepted = true;   // sendCheckpoint outcome (M3 T3.5)
   reserved::TransportState state = reserved::TransportState::Disconnected;
   int latency = 0;
   int reconnectCount = 0;
@@ -46,12 +55,29 @@ struct FakeTransportState {
   std::string lastClientVersion;
   std::string lastJoinedBoard;
   std::string lastJoinedPage;
+  /// Watermark of the most recent (and every) joinBoard call (D2-D).
+  nlohmann::json lastJoinedWatermark = nlohmann::json::object();
+  std::vector<nlohmann::json> joinWatermarks;
   std::vector<nlohmann::json> sentOps;
   std::vector<nlohmann::json> sentPreviews;
+  std::vector<nlohmann::json> sentLocks;  // accepted sendLock payloads, in order
+  /// Accepted sendInteractive payloads, in order (M3 T3.2).
+  std::vector<nlohmann::json> sentInteractives;
+  /// Accepted sendCheckpoint payloads, in order (M3 T3.5).
+  std::vector<nlohmann::json> sentCheckpoints;
 
   // Queues the test drives / inspects.
-  std::vector<InboundEvent> inbound;     // drained by the sync domain
-  std::vector<nlohmann::json> failures;  // reclaimed into `pending`
+  std::vector<InboundEvent> inbound;        // drained by the sync domain
+  std::vector<nlohmann::json> failures;     // reclaimed into `pending`
+  std::vector<nlohmann::json> lockReplies;  // preloaded acks, FIFO (sendLock)
+  /// Preloaded interactive acks (FIFO): the next accepted sendInteractive()
+  /// pushes one as an inbound "interactive:reply" with the request action
+  /// stamped on (parity with the real transport's ack callback).
+  std::vector<nlohmann::json> interactiveReplies;
+  /// Preloaded checkpoint acks (FIFO): the next accepted sendCheckpoint()
+  /// pushes one as an inbound "checkpoint:reply" (the real transport does
+  /// this from its io thread, or injects a timeout failure from its pump).
+  std::vector<nlohmann::json> checkpointReplies;
 };
 
 inline FakeTransportState& FakeState() {
@@ -70,6 +96,25 @@ inline void FakePushInbound(std::string event, nlohmann::json payload) {
 /// Queues one op into the failure list (exhausted acks / dropped link).
 inline void FakeQueueFailure(nlohmann::json op) {
   FakeState().failures.push_back(std::move(op));
+}
+
+/// Preloads one lock ack: the next accepted sendLock() pushes it as an
+/// inbound "lock:reply" event (the real transport does the same from its io
+/// worker thread; the fake keeps the instant semantics).
+inline void FakeQueueLockReply(nlohmann::json payload) {
+  FakeState().lockReplies.push_back(std::move(payload));
+}
+
+/// Preloads one interactive ack (M3 T3.2): the next accepted
+/// sendInteractive() pushes it as an inbound "interactive:reply" event.
+inline void FakeQueueInteractiveReply(nlohmann::json payload) {
+  FakeState().interactiveReplies.push_back(std::move(payload));
+}
+
+/// Preloads one checkpoint ack (M3 T3.5): the next accepted
+/// sendCheckpoint() pushes it as an inbound "checkpoint:reply" event.
+inline void FakeQueueCheckpointReply(nlohmann::json payload) {
+  FakeState().checkpointReplies.push_back(std::move(payload));
 }
 
 class FakeTransport : public Transport {
@@ -110,12 +155,14 @@ class FakeTransport : public Transport {
     return reserved::TransportType::SocketIO;
   }
 
-  bool joinBoard(const std::string& boardId,
-                 const std::string& pageId) override {
+  bool joinBoard(const std::string& boardId, const std::string& pageId,
+                 const nlohmann::json& lastSeenVersion) override {
     FakeTransportState& state = FakeState();
     state.joinCalls += 1;
     state.lastJoinedBoard = boardId;
     state.lastJoinedPage = pageId;
+    state.lastJoinedWatermark = lastSeenVersion;
+    state.joinWatermarks.push_back(lastSeenVersion);
     if (!state.joinAccepted) return false;
     return state.state == reserved::TransportState::Connected;
   }
@@ -131,6 +178,62 @@ class FakeTransport : public Transport {
     FakeTransportState& state = FakeState();
     if (!state.previewAccepted) return false;
     state.sentPreviews.push_back(payload);
+    return true;
+  }
+
+  bool sendLock(const nlohmann::json& payload) override {
+    FakeTransportState& state = FakeState();
+    // Parity with the real transport: refuses while not connected.
+    if (state.state != reserved::TransportState::Connected) return false;
+    if (!state.lockAccepted) return false;
+    state.sentLocks.push_back(payload);
+    if (!state.lockReplies.empty()) {
+      nlohmann::json reply = state.lockReplies.front();
+      state.lockReplies.erase(state.lockReplies.begin());
+      FakePushInbound("lock:reply", std::move(reply));
+    }
+    return true;
+  }
+
+  bool sendInteractive(const nlohmann::json& payload) override {
+    FakeTransportState& state = FakeState();
+    // Parity with the real transport (M3 T3.2): refuses while not connected,
+    // for unknown actions, and when the action's extra field is missing; the
+    // action -> wire mapping comes from the shared source of truth.
+    if (state.state != reserved::TransportState::Connected) return false;
+    if (!state.interactiveAccepted) return false;
+    if (!payload.is_object()) return false;
+    const std::string action = payload.value("action", std::string());
+    const char* event = InteractiveWireEvent(action);
+    if (event == nullptr || *event == '\0') return false;
+    const char* field = InteractiveWireField(action);
+    if (field != nullptr && *field != '\0' &&
+        payload.value(field, std::string()).empty()) {
+      return false;
+    }
+    state.sentInteractives.push_back(payload);
+    if (!state.interactiveReplies.empty()) {
+      nlohmann::json reply = state.interactiveReplies.front();
+      state.interactiveReplies.erase(state.interactiveReplies.begin());
+      if (reply.is_object() && !reply.contains("action")) {
+        reply["action"] = action;  // ack stamping parity with the real path
+      }
+      FakePushInbound("interactive:reply", std::move(reply));
+    }
+    return true;
+  }
+
+  bool sendCheckpoint(const nlohmann::json& payload) override {
+    FakeTransportState& state = FakeState();
+    // Parity with the real transport (M3 T3.5): refuses while not connected.
+    if (state.state != reserved::TransportState::Connected) return false;
+    if (!state.checkpointAccepted) return false;
+    state.sentCheckpoints.push_back(payload);
+    if (!state.checkpointReplies.empty()) {
+      nlohmann::json reply = state.checkpointReplies.front();
+      state.checkpointReplies.erase(state.checkpointReplies.begin());
+      FakePushInbound("checkpoint:reply", std::move(reply));
+    }
     return true;
   }
 

@@ -1,19 +1,19 @@
 import 'dart:convert';
 
+import '../engine.dart';
 import '../models/element.dart';
 import '../utils/json_codec.dart';
-import '../wb_core_ffi.dart';
 
 /// 元素服务：创建 / 更新 / 删除 / 查询 / 批量操作。
 class WbElementService {
   const WbElementService(this.ffi);
 
-  final WbCoreFfi ffi;
+  final WbEngineCaller ffi;
 
   /// 元素列表（按页面 pageId）。
   List<WbElement> list(String pageId) {
     final WbResponse response =
-        WbResponse.parse(ffi.call1(ffi.bindings.wbElementList, pageId));
+        WbResponse.parse(ffi.call1('wb_element_list', pageId));
     final Map<String, dynamic> result = response.requireResult();
     final List<Map<String, dynamic>> items =
         WbJsonCodec.extractList(result['elements'] ?? result['items']);
@@ -24,7 +24,7 @@ class WbElementService {
   WbElement create(String pageId, Map<String, dynamic> element) {
     final WbResponse response = WbResponse.parse(
       ffi.call2(
-        ffi.bindings.wbElementCreate,
+        'wb_element_create',
         pageId,
         WbJsonCodec.encode(element),
       ),
@@ -38,7 +38,7 @@ class WbElementService {
   WbElement update(String elementId, Map<String, dynamic> patch) {
     final WbResponse response = WbResponse.parse(
       ffi.call2(
-        ffi.bindings.wbElementUpdate,
+        'wb_element_update',
         elementId,
         WbJsonCodec.encode(patch),
       ),
@@ -51,7 +51,7 @@ class WbElementService {
   /// 删除元素。
   Map<String, dynamic> delete(String elementId) {
     final WbResponse response =
-        WbResponse.parse(ffi.call1(ffi.bindings.wbElementDelete, elementId));
+        WbResponse.parse(ffi.call1('wb_element_delete', elementId));
     return response.requireResult();
   }
 
@@ -62,7 +62,7 @@ class WbElementService {
   Map<String, dynamic> batch(String pageId, List<Map<String, dynamic>> ops) {
     final WbResponse response = WbResponse.parse(
       ffi.call2(
-        ffi.bindings.wbElementBatch,
+        'wb_element_batch',
         pageId,
         jsonEncode(ops),
       ),

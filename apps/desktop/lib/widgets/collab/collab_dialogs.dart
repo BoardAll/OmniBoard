@@ -144,6 +144,7 @@ class _WbCollabRoomDialog extends StatelessWidget {
     final String status = sync?.status.label ?? '未挂载';
     final int online = sync?.participantList.length ?? 0;
     final String error = sync?.lastError ?? '';
+    final bool offerReconnect = sync?.shouldOfferReconnect ?? false;
     return AlertDialog(
       key: const ValueKey<String>('wb-collab-room-dialog'),
       title: const Text('互动白板'),
@@ -165,6 +166,16 @@ class _WbCollabRoomDialog extends StatelessWidget {
               const SizedBox(height: 8),
               _InfoRow(label: '最近错误', value: error),
             ],
+            if (offerReconnect) ...<Widget>[
+              const SizedBox(height: 8),
+              Text(
+                '连接多次失败（已重连 ${sync?.reconnectCount ?? 0} 次），'
+                '可尝试重新连接。',
+                style: text.bodySmall?.copyWith(
+                  color: Theme.of(context).colorScheme.error,
+                ),
+              ),
+            ],
             const SizedBox(height: 12),
             Text(
               '两端输入相同房间号即自动同步；退出后回到本地模式（内容保留）。',
@@ -174,6 +185,12 @@ class _WbCollabRoomDialog extends StatelessWidget {
         ),
       ),
       actions: <Widget>[
+        if (offerReconnect)
+          OutlinedButton(
+            key: const ValueKey<String>('wb-collab-room-reconnect'),
+            onPressed: sync == null ? null : () => _reconnect(context, sync),
+            child: const Text('重新连接'),
+          ),
         TextButton(
           key: const ValueKey<String>('wb-collab-room-close'),
           onPressed: () => Navigator.of(context).pop(),
@@ -187,6 +204,30 @@ class _WbCollabRoomDialog extends StatelessWidget {
         ),
       ],
     );
+  }
+
+  /// 手动重连（重连预算耗尽后的恢复入口）：disconnect + 同房 start。
+  ///
+  /// 结果就近轻提示反馈（对话框保持打开，可再次尝试或退出）。
+  static Future<void> _reconnect(
+    BuildContext context,
+    WbCollabService service,
+  ) async {
+    final bool ok = await service.reconnect();
+    if (!context.mounted) {
+      return;
+    }
+    final String reason = service.lastError.trim();
+    ScaffoldMessenger.of(context)
+      ..clearSnackBars()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(
+            ok ? '已重新连接互动白板' : '重连失败：${reason.isEmpty ? '未知错误' : reason}',
+          ),
+          duration: const Duration(seconds: 2),
+        ),
+      );
   }
 }
 

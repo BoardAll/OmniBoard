@@ -1,7 +1,7 @@
-/// 白板列表页（首页）：演示数据 + 新建白板 + 主题切换。
+/// 白板列表页（首页）：空态引导 + 新建白板 + 主题切换。
 ///
-/// 骨架阶段列表为页内内存数据（含 3 条演示白板），持久化 /
-/// 服务端同步在 Wave 4 接入。
+/// 列表为页内内存数据（会话内保留「新建白板」产生的条目），
+/// 持久化 / 服务端同步待接入。
 library;
 
 import 'package:flutter/material.dart';
@@ -15,7 +15,7 @@ import '../routes.dart';
 import '../state/theme_state.dart';
 import '../widgets/core_status_chip.dart';
 
-/// 白板条目（演示数据模型；持久化在 Wave 4 接入）。
+/// 白板条目（列表页内存模型；持久化待接入）。
 class WbWebBoard {
   /// 创建条目。
   const WbWebBoard({
@@ -34,28 +34,6 @@ class WbWebBoard {
   final DateTime updatedAt;
 }
 
-/// 生成演示数据（3 条示例白板）。
-List<WbWebBoard> wbDemoBoards() {
-  final DateTime now = DateTime.now();
-  return <WbWebBoard>[
-    WbWebBoard(
-      id: 'demo-roadmap',
-      name: '产品路线图',
-      updatedAt: now.subtract(const Duration(hours: 2)),
-    ),
-    WbWebBoard(
-      id: 'demo-architecture',
-      name: '系统架构草图',
-      updatedAt: now.subtract(const Duration(days: 1)),
-    ),
-    WbWebBoard(
-      id: 'demo-mindmap',
-      name: '需求脑图',
-      updatedAt: now.subtract(const Duration(days: 3)),
-    ),
-  ];
-}
-
 /// 白板列表页。
 class BoardListPage extends StatefulWidget {
   /// 创建列表页。
@@ -66,7 +44,7 @@ class BoardListPage extends StatefulWidget {
 }
 
 class _BoardListPageState extends State<BoardListPage> {
-  late final List<WbWebBoard> _boards = wbDemoBoards();
+  final List<WbWebBoard> _boards = <WbWebBoard>[];
 
   void _createBoard() {
     final String id = 'board-${DateTime.now().millisecondsSinceEpoch}';
@@ -103,6 +81,9 @@ class _BoardListPageState extends State<BoardListPage> {
       ),
       body: LayoutBuilder(
         builder: (BuildContext context, BoxConstraints constraints) {
+          if (_boards.isEmpty) {
+            return const _EmptyBoardsHint();
+          }
           // 响应式：宽屏（≥600）网格，窄屏列表。
           if (constraints.maxWidth >= 600) {
             return _buildGrid();
@@ -151,6 +132,33 @@ class _BoardListPageState extends State<BoardListPage> {
           ),
         );
       },
+    );
+  }
+}
+
+/// 空态引导（无白板时）。
+class _EmptyBoardsHint extends StatelessWidget {
+  const _EmptyBoardsHint();
+
+  @override
+  Widget build(BuildContext context) {
+    final WbThemeColors colors = context.wbColors;
+    return Center(
+      key: const Key('wb-board-list-empty'),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          Icon(LinearIcons.board, size: 40, color: colors.icon),
+          const SizedBox(height: 12),
+          const WbText('还没有白板', variant: WbTextVariant.title),
+          const SizedBox(height: 6),
+          WbText(
+            '点击右下角「新建白板」开始创作',
+            variant: WbTextVariant.caption,
+            color: colors.icon,
+          ),
+        ],
+      ),
     );
   }
 }

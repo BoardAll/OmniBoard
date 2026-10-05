@@ -2,7 +2,7 @@
 
 独立 Flutter 测试包：以 `flutter_test` 驱动 `apps/desktop` 的**完整应用入口**
 （`WhiteboardApp` + 演示模式 FFI 降级路径），覆盖 §12.3 规定的四条流程，
-并承载 M1「双端互见」场景骨架（编排脚本见下）：
+并承载「双端互见」场景骨架与 M1/M2/M3 契约编排（编排脚本见下）：
 
 | 文件 | 流程 |
 |---|---|
@@ -22,11 +22,13 @@ flutter test create_board_test.dart   # 单文件直跑（实现文件在包根�
 flutter test .                        # 备选：直跑根目录实现（会与 test/ 转发文件重复执行）
 ```
 
-### M1「双端互见」场景编排（四段可独立执行）
+### 「双端互见」场景编排（M1 + M2 + M3，四段可独立执行）
 
 前置：Node ≥ 18、`services/realtime` 已 `npm run build`；`desktop` 段另需
 `wb_core.dll` 已构建（`tools\scripts\build_cpp.ps1`）；`web` 段需 Chrome/Edge
-（缺失自动 SKIP）。脚本支持任意 cwd，端口默认 8790（`WB_E2E_PORT` 可覆盖）：
+（缺失自动 SKIP）。M3 契约组所需的 `WB_JWT_SECRET` / `WB_CHECKPOINT_OP_THRESHOLD`
+由脚本自动双端注入（默认 `e2e-m3-secret` / `6`，可用同名环境变量覆盖）。
+脚本支持任意 cwd，端口默认 8790（`WB_E2E_PORT` 可覆盖）：
 
 ```powershell
 node tests/e2e/support/run_collab_dual_end.mjs                    # 全量四段：server → desktop → ops → web
@@ -36,8 +38,10 @@ node tests/e2e/support/run_collab_dual_end.mjs --list             # 段说明
 ```
 
 - 段职责：`server` = 起 realtime（:8790）+ 健康检查；`desktop` = 参与者 ×2
-  双进程真连（T1.6 等价物：A 发 B 收闭环）；`ops` = 契约级探针（插入/移动/删除
-  op 矩阵 + 断线重连恢复）；`web` = 参与者 ×1 浏览器冒烟（W1 成员/状态互见）。
+  双进程真连（T1.6 等价物：A 发 B 收闭环）；`ops` = 契约级探针（op 矩阵 +
+  M2：presence 转发 / 软锁 / 断线差分量；M3：interactive 9 动作 / 角色矩阵拒绝 /
+  checkpoint 阈值触发-单播请求-快照恢复 / 自举房承接；JWT 角色注入）；
+  `web` = 参与者 ×1 浏览器冒烟（W1 成员/状态互见）。
 - 退出码：0 = 全部执行段 PASS（SKIP 允许）；1 = 任意段 FAIL。
 - 详见 `docs/modules/18-qa-testing.md` §2.2 / §2.7。
 
@@ -51,7 +55,8 @@ node tests/e2e/support/run_collab_dual_end.mjs --list             # 段说明
   首页/编辑页启动；`pumpApp/pumpEditor` 返回 `WbThemeState` 供用例声明外观），
   与 `apps/desktop/test` 的 widget 测试同一策略。
 - `support/run_collab_dual_end.mjs` + `support/wb_collab_scenario_probe.mjs`：
-  M1 场景编排与契约级探针（复用 T1.6 双进程资产与 T1.8 Web 冒烟）。
+  M1/M2/M3 场景编排与契约级探针（复用 T1.6 双进程资产与 T1.8 Web 冒烟；
+  M3 契约组以 JWT 注入多身份：Host / CoHost / Presenter / Participant / Viewer）。
 - 与 `apps/desktop/integration_test/`（设备端）的流程对齐；本包的优势是
   **无需设备**，`flutter test` 在 Windows VM 直接全绿。
 - FFI 为演示模式（DLL 候选路径必然失败）——真实 `wb_core.dll` 的执行覆盖在

@@ -67,7 +67,8 @@ describe('realtime 契约: 参与者生命周期', () => {
       const ackB = await joinBoard(b.client, 'board-p');
       if (!ackB.ok) throw new Error('join b failed');
       expect(ackB.participants.map((p) => p.userId)).toEqual([a.session.userId, b.session.userId]);
-      expect(ackB.participants.every((p) => p.role === 'Participant')).toBe(true);
+      // 房主自举：a（首入匿名）为 Host；b 遇在线 Host 保持 Participant。
+      expect(ackB.participants.map((p) => p.role)).toEqual(['Host', 'Participant']);
 
       const joinedPayload = await joinedOnA;
       expect(joinedPayload.joined).toHaveLength(1);

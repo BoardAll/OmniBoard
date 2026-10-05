@@ -153,6 +153,13 @@ void main() {
         }
       }
       expect(WbContextCatalog.specFor(WbContextTargetType.multiSelect).items.length, 11);
+      // 多选工具栏覆盖单选层级功能：moreItems 含复制（duplicate）。
+      final WbContextToolbarSpec multi =
+          WbContextCatalog.specFor(WbContextTargetType.multiSelect);
+      expect(
+        multi.moreItems.map((WbContextItem item) => item.id).toList(),
+        contains('duplicate'),
+      );
     });
   });
 
@@ -668,8 +675,7 @@ void main() {
   });
 
   group('上下文浮层（§17）', () {
-    testWidgets('出现于对象上方、点击空白收起、句柄关闭', (WidgetTester tester) async {
-      int dismissedCount = 0;
+    testWidgets('出现于对象上方、setVisible 隐藏-恢复、close 销毁', (WidgetTester tester) async {
       WbContextToolbarHandle? handle;
       await _pump(
         tester,
@@ -681,7 +687,6 @@ void main() {
                   context,
                   target: const WbContextTarget(type: WbContextTargetType.shape),
                   anchor: const Rect.fromLTWH(300, 300, 120, 60),
-                  onDismiss: () => dismissedCount++,
                 );
               },
               child: const Text('open'),
@@ -700,21 +705,29 @@ void main() {
       expect(popupRect.bottom, lessThanOrEqualTo(300.0));
       expect(popupRect.center.dx, closeTo(360, 80));
 
-      // 点击空白处收起 + 回调。
-      await tester.tapAt(const Offset(20, 700));
+      // setVisible(false) → Offstage 保活隐藏（不销毁）；setVisible(true) 恢复。
+      handle!.setVisible(false);
       await tester.pumpAndSettle();
       expect(_key('wb-context-toolbar-popup'), findsNothing);
-      expect(dismissedCount, 1);
-      expect(handle!.isClosed, isTrue);
-
-      // 重新打开 → 句柄 close() 静默关闭（不触发 onDismiss）。
-      await tester.tap(find.text('open'));
+      expect(handle!.isClosed, isFalse);
+      handle!.setVisible(true);
       await tester.pumpAndSettle();
       expect(_key('wb-context-toolbar-popup'), findsOneWidget);
+
+      // close() 终极销毁：entry 移除、句柄关闭。
       handle!.close();
       await tester.pumpAndSettle();
       expect(_key('wb-context-toolbar-popup'), findsNothing);
-      expect(dismissedCount, 1);
+      expect(handle!.isClosed, isTrue);
+
+      // 重新打开（新句柄）→ 再次显示；close() 收尾。
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      expect(_key('wb-context-toolbar-popup'), findsOneWidget);
+      expect(handle!.isClosed, isFalse);
+      handle!.close();
+      await tester.pumpAndSettle();
+      expect(_key('wb-context-toolbar-popup'), findsNothing);
       expect(handle!.isClosed, isTrue);
     });
 

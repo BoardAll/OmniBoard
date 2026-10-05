@@ -10,12 +10,14 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+import 'package:whiteboard_canvas/services/canvas_engine.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'routes.dart';
 import 'services/ai_service.dart';
 import 'services/app_exit_service.dart';
 import 'services/board_file_service.dart';
+import 'services/canvas_engine.dart';
 import 'services/ffi_service.dart';
 import 'services/settings_store.dart';
 import 'services/shortcut_service.dart';
@@ -121,6 +123,10 @@ class _WhiteboardAppState extends State<WhiteboardApp> with WindowListener {
     return MultiProvider(
       providers: [
         Provider<WbFfiService>.value(value: widget.ffiService),
+        Provider<WbCanvasEngine>(
+          create: (BuildContext context) =>
+              WbFfiCanvasEngine(widget.ffiService),
+        ),
         Provider<WbShortcutService>.value(value: widget.shortcutService),
         Provider<WbAppExitService>.value(value: _exitService),
         ChangeNotifierProvider<WbThemeState>.value(value: widget.themeState),
@@ -135,7 +141,8 @@ class _WhiteboardAppState extends State<WhiteboardApp> with WindowListener {
           create: (BuildContext context) => WbBoardState(ffi: widget.ffiService),
         ),
         ChangeNotifierProvider<WbPageState>(
-          create: (BuildContext context) => WbPageState(ffi: widget.ffiService),
+          create: (BuildContext context) =>
+              WbPageState(ops: WbFfiPageOps(widget.ffiService)),
         ),
         ChangeNotifierProvider<WbSelectionState>(
           create: (BuildContext context) => WbSelectionState(),

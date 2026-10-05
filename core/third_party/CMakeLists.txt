@@ -191,3 +191,20 @@ target_link_libraries(wb_third_party INTERFACE
 if(TARGET wb::sioxx)
   target_link_libraries(wb_third_party INTERFACE wb::sioxx)
 endif()
+
+# --- fmt / spdlog on Emscripten ---------------------------------------------
+# Clang 19 (Emscripten 3.1.74) rejects fmt 10.2.1's consteval overloads
+# ("call to consteval function ... is not a constant expression",
+# fmtlib/fmt#3952); overriding FMT_CONSTEVAL with an empty definition
+# (supported by core.h's `#ifndef FMT_CONSTEVAL`) falls back to the
+# behaviourally identical constexpr implementation.
+# PUBLIC so every consumer (spdlog, wb_core, wb_core_wasm) sees the same
+# definition — a mixed view would be an ODR hazard.
+if(WB_BUILD_WASM)
+  if(TARGET fmt)
+    target_compile_definitions(fmt PUBLIC "FMT_CONSTEVAL=")
+  endif()
+  if(TARGET spdlog)
+    target_compile_definitions(spdlog PUBLIC "FMT_CONSTEVAL=")
+  endif()
+endif()

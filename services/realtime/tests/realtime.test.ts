@@ -101,22 +101,23 @@ describe('realtime: /board 最小事件集', () => {
       const ack = await emitAck<BoardJoinAck>(client, 'board:join', { boardId: 'board-1', pageId: 'page-1' });
       if (!ack.ok) throw new Error(`expected join ack success, got ${ack.error.code}`);
       expect(ack.boardId).toBe('board-1');
-      expect(ack.role).toBe('Participant');
+      // 房主自举：空房首个加入的可写角色自动成为 Host。
+      expect(ack.role).toBe('Host');
       expect(ack.mode).toBe('free');
-      expect(ack.locks).toEqual([]);
+      expect(ack.locks).toEqual({});
       expect(ack.stateVector).toEqual({});
       expect(ack.participants).toEqual([
-        expect.objectContaining({ userId: session.userId, socketId: client.id, role: 'Participant' }),
+        expect.objectContaining({ userId: session.userId, socketId: client.id, role: 'Host' }),
       ]);
 
       const joined = await joinedPromise;
       expect(joined.boardId).toBe('board-1');
-      expect(joined.role).toBe('Participant');
+      expect(joined.role).toBe('Host');
       expect(joined.mode).toBe('free');
-      expect(joined.locks).toEqual([]);
+      expect(joined.locks).toEqual({});
       expect(joined.stateVector).toEqual({});
       expect(joined.participants).toEqual([
-        expect.objectContaining({ userId: session.userId, socketId: client.id, role: 'Participant' }),
+        expect.objectContaining({ userId: session.userId, socketId: client.id, role: 'Host' }),
       ]);
     } finally {
       await ctx.close();
