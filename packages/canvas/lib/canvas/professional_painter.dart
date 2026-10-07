@@ -23,6 +23,9 @@ import '../context_editors/mindmap_editor.dart';
 import '../context_editors/render2d_editor.dart';
 import '../context_editors/render3d_editor.dart';
 import '../context_editors/table_editor.dart';
+import '../markdown/markdown_model.dart';
+import '../markdown/markdown_painter.dart';
+import '../markdown/markdown_theme.dart';
 import 'canvas_model.dart';
 
 /// 专业元素绘制器（纯静态工具类）。
@@ -56,13 +59,19 @@ abstract final class WbProfessionalRenderer {
         WbElementKind.function => '函数图像',
         WbElementKind.render3d => '3D 对象',
         WbElementKind.render2d => '2D 图元',
+        WbElementKind.markdown => 'Markdown',
         _ => type,
       };
 
   /// 插入尺寸建议（模型外接矩形 + 两侧留白；最小 140 x 90）。
   ///
+  /// Markdown 按默认宽度 [layoutCanvas] 实测内容高度（下限 320 / 上限
+  /// 760），与其余专业元素「模型外接矩形」口径不同（文档流随宽度重排）。
   /// [payload] 缺失或类型不符返回 null（调用方回退默认尺寸）。
   static Size? measure(String type, Object? payload) {
+    if (type == WbElementKind.markdown) {
+      return _measureMarkdown(payload);
+    }
     final Rect? bounds = _modelBounds(type, payload);
     if (bounds == null) {
       return null;
@@ -73,14 +82,47 @@ abstract final class WbProfessionalRenderer {
     );
   }
 
+  /// Markdown 插入尺寸：宽度固定 [layoutCanvas]、高度按内容实测。
+  static Size _measureMarkdown(Object? payload) {
+    final WbMarkdownModel? model = WbMarkdownModel.fromPayload(payload);
+    final String source =
+        model?.source ?? WbMarkdownModel.sample().source;
+    final double natural = WbMarkdownPainter.measureHeight(
+      source,
+      layoutCanvas.width,
+      theme: WbMarkdownTheme.light,
+    );
+    return Size(
+      layoutCanvas.width,
+      math.max(layoutCanvas.height, math.min(natural, 760)),
+    );
+  }
+
   /// 绘制 [element]（模型取自 `element.payload`）。
   ///
-  /// 返回 false 表示无法渲染（payload 缺失 / 类型不符），宿主应画占位。
+  /// Markdown 走独立分支：按元素宽度重排渲染（不做等比缩放 —— 文档流
+  /// 字号固定，缩放只改变换行宽度）；返回 false 表示无法渲染（payload
+  /// 缺失 / 类型不符），宿主应画占位。
   static bool paint(
     Canvas canvas,
     WbCanvasElement element,
     WbCanvasTextCache textCache,
   ) {
+    if (element.type == WbElementKind.markdown) {
+      final WbMarkdownModel? model = WbMarkdownModel.fromPayload(element.payload);
+      if (model == null) {
+        return false;
+      }
+      WbMarkdownPainter.paint(
+        canvas,
+        element.bounds,
+        source: model.source,
+        theme: WbMarkdownTheme.light,
+        textCache: textCache,
+        cachePrefix: element.id,
+      );
+      return true;
+    }
     final Object? payload = element.payload;
     if (payload == null || !_isCompatible(element.type, payload)) {
       return false;

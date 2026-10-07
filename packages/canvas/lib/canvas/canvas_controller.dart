@@ -21,6 +21,7 @@ import 'package:whiteboard_theme/theme.dart';
 import '../state/selection_state.dart';
 import '../collab/preview_page_match.dart';
 import '../context_editors/render3d_editor.dart';
+import '../markdown/markdown_painter.dart';
 import 'canvas_image_cache.dart';
 import 'canvas_model.dart';
 import 'canvas_store.dart';
@@ -2396,6 +2397,8 @@ class WbCanvasController extends ChangeNotifier {
         return const Size(40, 28);
       case WbElementKind.note:
         return const Size(60, 44);
+      case WbElementKind.markdown:
+        return const Size(240, 160);
       default:
         return const Size(24, 24);
     }
@@ -2528,6 +2531,8 @@ class WbCanvasController extends ChangeNotifier {
   /// binding 必然已初始化），避免控制器在无绑定环境构造时报错。
   void invalidateTextLayouts() {
     textCache.clear();
+    // Markdown 布局缓存与字体强相关（Web CJK 回退字体就绪后需重排）。
+    WbMarkdownRenderCache.clear();
     notifyListeners();
   }
 
@@ -2804,6 +2809,8 @@ class WbCanvasController extends ChangeNotifier {
         return const Size(180, 120);
       case WbElementKind.text:
         return const Size(220, 44);
+      case WbElementKind.markdown:
+        return const Size(420, 320);
       default:
         return const Size(160, 120);
     }
@@ -2879,8 +2886,11 @@ class WbCanvasController extends ChangeNotifier {
     endTextEditing();
     for (final MapEntry<String, List<WbCanvasElement>> entry
         in byPage.entries) {
-      final List<WbCanvasElement> list = List<WbCanvasElement>.of(entry.value);
-      document.replace(entry.key, list);
+      document.replace(entry.key, entry.value);
+      // 历史数据 zIndex 可能与列表顺序不一致：加载时按 zIndex 升序
+      // 恢复列表顺序（列表尾 = 最上层），与面板显示口径对齐。
+      _resortPageByZIndex(entry.key);
+      final List<WbCanvasElement> list = document.snapshot(entry.key);
       try {
         _store?.replaceAll(entry.key, list);
       } catch (_) {
@@ -2936,32 +2946,53 @@ class WbCanvasController extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// 应用图层新顺序（[topFirstIds] 顶层在前；zIndex = len-1-i）。
+  /// 应用图层新顺序（[topFirstIds] 顶层在前；zIndex = 列表下标）。
   ///
-  /// 供图层面板拖拽 / 菜单排序统一回写；入撤销栈。
+  /// 供图层面板拖拽 / 菜单排序统一回写。物理重排页面列表（列表尾 =
+  /// 最上层，与 `zIndex` 升序一致——绘制与命中均按列表顺序），并重
+  /// 编号 `zIndex` = 下标；未列出的元素保持相对顺序置于下层。顺序与
+  /// `zIndex` 均无变化时不产生撤销记录。
   void applyZOrder(List<String> topFirstIds) {
     if (topFirstIds.isEmpty) {
       return;
     }
-    final int len = topFirstIds.length;
-    final List<WbCanvasElement> updated = <WbCanvasElement>[];
-    for (int i = 0; i < len; i++) {
-      final WbCanvasElement? element = document.byId(_pageId, topFirstIds[i]);
-      if (element == null) {
+    final List<WbCanvasElement> list = document.snapshot(_pageId);
+    if (list.isEmpty) {
+      return;
+    }
+    final Map<String, WbCanvasElement> byId = <String, WbCanvasElement>{
+      for (final WbCanvasElement e in list) e.id: e,
+    };
+    // 绘制列表底层在前：显示序（顶层在前）反向追加；未列出者置底。
+    final List<WbCanvasElement> listed = <WbCanvasElement>[];
+    final Set<String> listedIds = <String>{};
+    for (int i = topFirstIds.length - 1; i >= 0; i--) {
+      final WbCanvasElement? element = byId[topFirstIds[i]];
+      if (element == null || !listedIds.add(element.id)) {
         continue;
       }
-      final int z = len - 1 - i;
-      if (element.zIndex != z) {
-        updated.add(element.copyWith(zIndex: z));
+      listed.add(element);
+    }
+    if (listed.isEmpty) {
+      return;
+    }
+    final List<WbCanvasElement> next = <WbCanvasElement>[
+      for (final WbCanvasElement e in list)
+        if (!listedIds.contains(e.id)) e,
+      ...listed,
+    ];
+    // 重编号：zIndex = 列表下标（「列表顺序与 zIndex 一致」不变量）。
+    for (int i = 0; i < next.length; i++) {
+      final WbCanvasElement element = next[i];
+      if (element.zIndex != i) {
+        next[i] = element.copyWith(zIndex: i);
       }
     }
-    if (updated.isEmpty) {
+    if (_sameElements(list, next)) {
       return;
     }
     _beginEdit();
-    for (final WbCanvasElement element in updated) {
-      document.upsert(_pageId, element);
-    }
+    document.replace(_pageId, next);
     _commitEdit();
     notifyListeners();
   }
@@ -3645,6 +3676,8 @@ class WbCanvasController extends ChangeNotifier {
   /// 与本地编辑结构隔离（**防回发第一层**）：不经过 `_beginEdit` /
   /// `_commitEdit` 提交漏斗、不生成出口批次、不触碰撤销 / 重做栈——
   /// 远端变更不占用本端撤销历史。内容变化递增 [documentRevision]（脏标记）。
+  /// 元素落位后按 `zIndex` 升序恢复目标页列表顺序（列表尾 = 最上层），
+  /// 使远端层级调整与本端绘制 / 命中口径一致。
   void applyRemoteElement(WbCanvasElement element, {String? pageId}) {
     if (_disposed || element.id.isEmpty) {
       return;
@@ -3655,6 +3688,7 @@ class WbCanvasController extends ChangeNotifier {
     _remoteTransformGhosts.remove(element.id);
     _markFinalizedStrokeId(element.id);
     document.upsert(target, element);
+    _resortPageByZIndex(target);
     textCache.invalidate(element.id);
     try {
       _store?.upsert(target, element);
@@ -3704,6 +3738,37 @@ class WbCanvasController extends ChangeNotifier {
   }
 
   // ---- 内部工具 ---------------------------------------------------------
+
+  /// 按 `zIndex` 升序重排 [pageId] 列表（同级保持现有相对顺序）。
+  ///
+  /// 远端 upsert / 整板加载把 `zIndex` 当优先级广播，元素可能乱序
+  /// 到达；绘制与命中按列表顺序（尾 = 最上层）——此方法收敛两者。
+  /// 仅重排列表，不改写 `zIndex` 值（乱序到达时重编号会破坏收敛）。
+  void _resortPageByZIndex(String pageId) {
+    final List<WbCanvasElement> list = document.snapshot(pageId);
+    if (list.length < 2) {
+      return;
+    }
+    final List<int> order = List<int>.generate(list.length, (int i) => i)
+      ..sort((int a, int b) {
+        final int byZ = list[a].zIndex.compareTo(list[b].zIndex);
+        return byZ != 0 ? byZ : a.compareTo(b);
+      });
+    bool changed = false;
+    for (int i = 0; i < order.length; i++) {
+      if (order[i] != i) {
+        changed = true;
+        break;
+      }
+    }
+    if (!changed) {
+      return;
+    }
+    document.replace(
+      pageId,
+      <WbCanvasElement>[for (final int i in order) list[i]],
+    );
+  }
 
   void _beginEdit() {
     _editSnapshot = document.snapshot(_pageId);

@@ -52,6 +52,8 @@ import '../widgets/floating_toolbar.dart';
 import '../widgets/guide/help_center.dart';
 import '../widgets/guide/onboarding_overlay.dart';
 import '../widgets/guide/shortcut_card_dialog.dart';
+import '../widgets/markdown/markdown_model.dart';
+import '../widgets/markdown/markdown_reader.dart';
 import '../widgets/radial/radial_models.dart';
 import '../widgets/radial/radial_popup.dart';
 import '../widgets/radial/radial_tool_mapping.dart';
@@ -874,6 +876,18 @@ class _BoardEditPageState extends State<BoardEditPage> {
         _canvas.setSelectionTextAlign(
           command.args['value'] as String? ?? 'left',
         );
+      case 'markdown.edit': {
+        final WbCanvasElement? target = _singleSelectedElement();
+        if (target != null) {
+          unawaited(_editMarkdownElement(target));
+        }
+      }
+      case 'markdown.fullscreen': {
+        final WbCanvasElement? target = _singleSelectedElement();
+        if (target != null) {
+          unawaited(_openMarkdownReader(target));
+        }
+      }
       case WbToolbarToolIds.settings:
         context.push(WbRoutes.settingsPath);
       case WbToolbarToolIds.shortcuts:
@@ -966,6 +980,18 @@ class _BoardEditPageState extends State<BoardEditPage> {
       _notifyNoEditPermission();
       return;
     }
+    if (kind == WbQuickCreateKind.markdown) {
+      // Markdown 直建（方案 §17）：默认内容落视口中心（420x320）、自动
+      // 选中，不自动进编辑器（双击 / 上下文「编辑」再进入工作区）。
+      _canvas.insertElement(
+        type: WbElementKind.markdown,
+        size: const Size(420, 320),
+        payload: kind.defaultModel(),
+      );
+      _canvas.setTool(WbCanvasTool.select);
+      _snack('已插入「${kind.label}」到画布，双击进入编辑');
+      return;
+    }
     final Object? model = await context.push<Object>(
       WbRoutes.elementEditorPath(widget.boardId),
       extra: WbElementEditorRequest(kind: kind),
@@ -986,6 +1012,10 @@ class _BoardEditPageState extends State<BoardEditPage> {
   /// M2 软锁：进入前闸门（他人编辑中提示并跳过）+ acquire（本地快照
   /// 乐观判断）；编辑页返回后 release（回执被拒由 onLockDenied 兜底）。
   Future<void> _onElementActivate(WbCanvasElement element) async {
+    if (element.type == WbElementKind.markdown) {
+      await _editMarkdownElement(element);
+      return;
+    }
     final WbQuickCreateKind? kind = WbQuickCreateKind.byId(element.type);
     if (kind == null) {
       return;
@@ -1021,6 +1051,121 @@ class _BoardEditPageState extends State<BoardEditPage> {
     } finally {
       _collab.releaseLock(element.id);
     }
+  }
+
+  /// Markdown 全窗编辑工作区（方案 §16）：M2 软锁 + 实时回写 payload。
+  ///
+  /// 编辑器 onChanged（debounce 300ms）经
+  /// [WbElementEditorRequest.onLiveChanged] 即时 `updateElement` 回写
+  /// （宽高保持用户调整后的值，不做 measure 重设）；退出（保存 / 取消 /
+  /// 关闭）统一 release 软锁。
+  Future<void> _editMarkdownElement(WbCanvasElement element) async {
+    if (!_collab.canEdit) {
+      _notifyNoEditPermission();
+      return;
+    }
+    final WbCanvasElement? current =
+        _canvas.document.byId(_canvas.pageId, element.id);
+    if (current == null) {
+      return;
+    }
+    final String? holder = _collab.lockHolderOf(current.id);
+    if (holder != null && holder.isNotEmpty) {
+      _snack('${_lockHolderLabel(holder)}正在编辑该元素');
+      return;
+    }
+    _collab.acquireLock(current.id);
+    try {
+      await context.push<Object>(
+        WbRoutes.elementEditorPath(widget.boardId),
+        extra: WbElementEditorRequest(
+          kind: WbQuickCreateKind.markdown,
+          initialModel: WbMarkdownModel.fromPayload(current.payload) ??
+              WbMarkdownModel.sample(),
+          elementId: current.id,
+          onLiveChanged: (Object model) {
+            if (model is! WbMarkdownModel) {
+              return;
+            }
+            _canvas.updateElement(
+              current.id,
+              (WbCanvasElement e) => e.copyWith(payload: model),
+            );
+          },
+        ),
+      );
+    } finally {
+      _collab.releaseLock(current.id);
+    }
+  }
+
+  /// 打开 Markdown 全屏阅读器（方案 §16）：滚动 / 缩放 / 搜索 / 目录。
+  Future<void> _openMarkdownReader(WbCanvasElement element) async {
+    final WbMarkdownModel? model =
+        WbMarkdownModel.fromPayload(element.payload);
+    if (model == null) {
+      return;
+    }
+    bool editRequested = false;
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext dialogContext) => Dialog.fullscreen(
+        child: WbMarkdownReader(
+          source: model.source,
+          title: element.name.isEmpty ? 'Markdown 阅读' : element.name,
+          onEdit: () {
+            editRequested = true;
+            Navigator.of(dialogContext).pop();
+          },
+          onClose: () => Navigator.of(dialogContext).pop(),
+        ),
+      ),
+    );
+    if (editRequested && mounted) {
+      // Reader 「编辑」入口 → 回跳编辑工作区（取最新元素快照）。
+      final WbCanvasElement? current =
+          _canvas.document.byId(_canvas.pageId, element.id);
+      if (current != null) {
+        await _editMarkdownElement(current);
+      }
+    }
+  }
+
+  /// 单选中的元素（多选 / 无选中返回 null；上下文命令用）。
+  WbCanvasElement? _singleSelectedElement() {
+    final Set<String> ids = _canvas.selectedIds;
+    if (ids.length != 1) {
+      return null;
+    }
+    return _canvas.document.byId(_canvas.pageId, ids.first);
+  }
+
+  /// 元素 id → 上下文工具栏类型（未知回退 unknown）。
+  ///
+  /// 供 [FloatingToolbar] 解析单选类型（此前仅测试传入解析器，本处正式
+  /// 接线；多选 / 空选区不经本方法）。
+  WbContextTargetType _resolveContextType(String id) {
+    final WbCanvasElement? element =
+        _canvas.document.byId(_canvas.pageId, id);
+    if (element == null) {
+      return WbContextTargetType.unknown;
+    }
+    return switch (element.type) {
+      WbElementKind.note => WbContextTargetType.note,
+      WbElementKind.text => WbContextTargetType.text,
+      WbElementKind.shape => WbContextTargetType.shape,
+      WbElementKind.connector => WbContextTargetType.connector,
+      WbElementKind.image => WbContextTargetType.image,
+      WbElementKind.render3d => WbContextTargetType.render3d,
+      WbElementKind.function => WbContextTargetType.function,
+      WbElementKind.render2d => WbContextTargetType.render2d,
+      WbElementKind.table => WbContextTargetType.table,
+      WbElementKind.mindmap => WbContextTargetType.mindmap,
+      WbElementKind.flowchart => WbContextTargetType.flowchart,
+      WbElementKind.markdown => WbContextTargetType.markdown,
+      _ => WbContextTargetType.unknown,
+    };
   }
 
   /// 点击尺寸角标 → 尺寸设置对话框；确认后按新宽高回写（波次 C）。
@@ -1264,6 +1409,7 @@ class _BoardEditPageState extends State<BoardEditPage> {
                               activeTool: _canvas.tool.id,
                               onToolChanged: _applyRadialTool,
                               onCommand: _handleToolbarCommand,
+                              contextTypeResolver: _resolveContextType,
                               onUndo: _canvas.undo,
                               onRedo: _canvas.redo,
                               penColor: Color(_canvas.penColor),

@@ -18,6 +18,7 @@ import 'package:whiteboard_desktop/widgets/canvas/canvas_controller.dart';
 import 'package:whiteboard_desktop/widgets/canvas/canvas_model.dart';
 import 'package:whiteboard_desktop/widgets/canvas/minimap.dart';
 import 'package:whiteboard_desktop/widgets/canvas_view.dart';
+import 'package:whiteboard_desktop/widgets/layers_panel.dart';
 
 // ---- 测试基建 -------------------------------------------------------------
 
@@ -49,6 +50,48 @@ void _seedTwoNotes(WbCanvasController c) {
       width: 100,
       height: 100,
       zIndex: 2,
+    ),
+  );
+}
+
+/// 预置三个重叠便签（a：0,0 z1；b：50,0 z2；c：25,0 z3；列表序 = z 序）。
+///
+/// 重叠点（60,50）同时命中三者，供图层序 / 命中回归断言用。
+void _seedStackedNotes(WbCanvasController c) {
+  c.document.upsert(
+    '',
+    const WbCanvasElement(
+      id: 'a',
+      type: WbElementKind.note,
+      x: 0,
+      y: 0,
+      width: 100,
+      height: 100,
+      zIndex: 1,
+    ),
+  );
+  c.document.upsert(
+    '',
+    const WbCanvasElement(
+      id: 'b',
+      type: WbElementKind.note,
+      x: 50,
+      y: 0,
+      width: 100,
+      height: 100,
+      zIndex: 2,
+    ),
+  );
+  c.document.upsert(
+    '',
+    const WbCanvasElement(
+      id: 'c',
+      type: WbElementKind.note,
+      x: 25,
+      y: 0,
+      width: 100,
+      height: 100,
+      zIndex: 3,
     ),
   );
 }
@@ -533,6 +576,154 @@ void main() {
   });
 
   // -------------------------------------------------------------------------
+  // 控制器：图层序（applyZOrder / 远端 z 收敛 / 整板加载修复）
+  // -------------------------------------------------------------------------
+
+  group('WbCanvasController 图层序', () {
+    test('applyZOrder：物理重排列表（尾 = 顶层）+ zIndex 重编号 + 命中跟随', () {
+      final WbCanvasController c = WbCanvasController();
+      _seedStackedNotes(c);
+      expect(
+        <String>[for (final WbCanvasElement e in c.elements) e.id],
+        <String>['a', 'b', 'c'],
+      );
+      // 重叠点（60,50）命中最上层 c（列表尾）。
+      expect(c.hitTestElement(const Offset(60, 50))?.id, 'c');
+
+      // a 置顶（传入显示序：顶层在前 a → c → b）。
+      c.applyZOrder(<String>['a', 'c', 'b']);
+
+      expect(
+        <String>[for (final WbCanvasElement e in c.elements) e.id],
+        <String>['b', 'c', 'a'],
+      );
+      expect(
+        <int>[for (final WbCanvasElement e in c.elements) e.zIndex],
+        <int>[0, 1, 2],
+      );
+      expect(c.hitTestElement(const Offset(60, 50))?.id, 'a');
+      expect(c.canUndo, isTrue);
+
+      c.undo();
+      expect(
+        <String>[for (final WbCanvasElement e in c.elements) e.id],
+        <String>['a', 'b', 'c'],
+      );
+      expect(c.document.byId('', 'a')!.zIndex, 1);
+    });
+
+    test('applyZOrder：同序重复应用不产生撤销记录（顺序与 zIndex 均无变化）', () {
+      final WbCanvasController c = WbCanvasController();
+      _seedStackedNotes(c);
+      c.applyZOrder(<String>['a', 'c', 'b']);
+      expect(c.canUndo, isTrue);
+
+      // 再次应用同一顺序：列表与 zIndex 均不变 → 不新增撤销记录。
+      c.applyZOrder(<String>['a', 'c', 'b']);
+      c.undo();
+      expect(
+        <String>[for (final WbCanvasElement e in c.elements) e.id],
+        <String>['a', 'b', 'c'],
+      );
+      expect(c.canUndo, isFalse);
+    });
+
+    test('applyRemoteElement：远端 zIndex 变化收敛列表顺序（同级保持相对序）', () {
+      final WbCanvasController c = WbCanvasController();
+      _seedStackedNotes(c);
+
+      // 远端把 a 降到与 b 同级（z2）：保持既有相对序（a 在 b 前）不动。
+      c.applyRemoteElement(c.document.byId('', 'a')!.copyWith(zIndex: 2));
+      expect(
+        <String>[for (final WbCanvasElement e in c.elements) e.id],
+        <String>['a', 'b', 'c'],
+      );
+
+      // 远端把 a 提到最顶层（z 最大）：列表尾迁移到 a。
+      c.applyRemoteElement(c.document.byId('', 'a')!.copyWith(zIndex: 9));
+      expect(
+        <String>[for (final WbCanvasElement e in c.elements) e.id],
+        <String>['b', 'c', 'a'],
+      );
+      // 远端应用不占用本端撤销历史。
+      expect(c.canUndo, isFalse);
+    });
+
+    test('loadBoardData：按 zIndex 恢复列表顺序（历史数据修复；同级保持原序）', () {
+      final WbCanvasController c = WbCanvasController();
+      // 数组序与 zIndex 不一致（历史图层 bug 数据）。
+      c.loadBoardData(<String, List<WbCanvasElement>>{
+        '': <WbCanvasElement>[
+          const WbCanvasElement(
+            id: 'a',
+            type: WbElementKind.note,
+            x: 0,
+            y: 0,
+            width: 10,
+            height: 10,
+            zIndex: 2,
+          ),
+          const WbCanvasElement(
+            id: 'b',
+            type: WbElementKind.note,
+            x: 20,
+            y: 0,
+            width: 10,
+            height: 10,
+          ),
+          const WbCanvasElement(
+            id: 'c',
+            type: WbElementKind.note,
+            x: 40,
+            y: 0,
+            width: 10,
+            height: 10,
+            zIndex: 1,
+          ),
+        ],
+      });
+      expect(
+        <String>[for (final WbCanvasElement e in c.elements) e.id],
+        <String>['b', 'c', 'a'],
+      );
+
+      // 全部同级（z0）：保持数组相对序。
+      c.loadBoardData(<String, List<WbCanvasElement>>{
+        '': <WbCanvasElement>[
+          const WbCanvasElement(
+            id: 'x',
+            type: WbElementKind.note,
+            x: 0,
+            y: 0,
+            width: 10,
+            height: 10,
+          ),
+          const WbCanvasElement(
+            id: 'y',
+            type: WbElementKind.note,
+            x: 20,
+            y: 0,
+            width: 10,
+            height: 10,
+          ),
+          const WbCanvasElement(
+            id: 'z',
+            type: WbElementKind.note,
+            x: 40,
+            y: 0,
+            width: 10,
+            height: 10,
+          ),
+        ],
+      });
+      expect(
+        <String>[for (final WbCanvasElement e in c.elements) e.id],
+        <String>['x', 'y', 'z'],
+      );
+    });
+  });
+
+  // -------------------------------------------------------------------------
   // 控制器：文本编辑
   // -------------------------------------------------------------------------
 
@@ -978,5 +1169,75 @@ void main() {
     await tester.pump();
 
     expect(sel.count, 1);
+  });
+
+  // -------------------------------------------------------------------------
+  // 图层序：图层面板（控制器模式）端到端
+  // -------------------------------------------------------------------------
+
+  testWidgets('图层面板「置于顶层」：画布列表顺序 / zIndex / 命中同步',
+      (WidgetTester tester) async {
+    final WbCanvasController c = WbCanvasController();
+    _seedStackedNotes(c);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Row(
+            children: <Widget>[
+              SizedBox(
+                width: 240,
+                child: LayersPanel(canvasController: c),
+              ),
+              const Expanded(child: SizedBox.expand()),
+            ],
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // 面板行顺序（顶层在前）：c → b → a。
+    const Key rowA = ValueKey<String>('layer-row-a');
+    const Key rowC = ValueKey<String>('layer-row-c');
+    expect(
+      tester.getTopLeft(find.byKey(rowC)).dy,
+      lessThan(tester.getTopLeft(find.byKey(rowA)).dy),
+    );
+
+    // a 行「更多操作」→ 置于顶层。
+    await tester.tap(find.byKey(const ValueKey<String>('layer-menu-a')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('置于顶层'));
+    await tester.pumpAndSettle();
+
+    // 画布列表（尾 = 顶层 = a）+ zIndex 重编号 + 命中跟随。
+    expect(
+      <String>[for (final WbCanvasElement e in c.elements) e.id],
+      <String>['b', 'c', 'a'],
+    );
+    expect(
+      <int>[for (final WbCanvasElement e in c.elements) e.zIndex],
+      <int>[0, 1, 2],
+    );
+    expect(c.hitTestElement(const Offset(60, 50))?.id, 'a');
+
+    // 面板行顺序同步翻转：a 行高于 c 行。
+    expect(
+      tester.getTopLeft(find.byKey(rowA)).dy,
+      lessThan(tester.getTopLeft(find.byKey(rowC)).dy),
+    );
+
+    // 面板操作入画布撤销栈：撤销恢复初始顺序并刷回面板。
+    c.undo();
+    await tester.pumpAndSettle();
+    expect(
+      <String>[for (final WbCanvasElement e in c.elements) e.id],
+      <String>['a', 'b', 'c'],
+    );
+    expect(
+      tester.getTopLeft(find.byKey(rowC)).dy,
+      lessThan(tester.getTopLeft(find.byKey(rowA)).dy),
+    );
   });
 }

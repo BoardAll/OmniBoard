@@ -1,8 +1,9 @@
 /// 快速创建入口（Wave 3.6）。
 ///
 /// 依据《白板软件设计文档》§6「工具栏」与《流程图模块设计》§10「快速创建」实现：
-/// - [WbQuickCreateBar]：五类专业元素（流程图 / 表格 / 思维导图 / 函数图像 /
-///   3D 对象）的按钮条，供画布空选中时浮出（挂载时机由宿主决定）；
+/// - [WbQuickCreateBar]：专业元素（流程图 / 表格 / 思维导图 / 函数图像 /
+///   3D 对象 / 2D 图元 / Markdown）的按钮条，供画布空选中时浮出（挂载
+///   时机由宿主决定）；
 /// - [WbQuickCreateLauncher]：自包含浮出入口 —— 圆形 `+` 按钮展开 / 收起
 ///   按钮条，创建时回调 [WbQuickCreateLauncher.onCreate] 并自动收起；
 /// - [WbQuickCreateKind.buildEditor]：按类型构建对应上下文编辑器，供宿主
@@ -16,6 +17,8 @@ import 'package:whiteboard_icons/icons.dart';
 import 'package:whiteboard_theme/theme.dart';
 import 'package:whiteboard_ui_kit/ui_kit.dart';
 
+import '../markdown/markdown_editor.dart';
+import '../markdown/markdown_model.dart';
 import 'context_editor_shell.dart';
 import 'flow_components.dart';
 import 'flowchart_editor.dart';
@@ -43,7 +46,10 @@ enum WbQuickCreateKind {
   render3d('render3d', '3D 对象', LinearIcons.cube),
 
   /// 2D 图元。
-  render2d('render2d', '2D 图元', LinearIcons.shape);
+  render2d('render2d', '2D 图元', LinearIcons.shape),
+
+  /// Markdown 文档。
+  markdown('markdown', 'Markdown', LinearIcons.page);
 
   const WbQuickCreateKind(this.id, this.label, this.icon);
 
@@ -56,12 +62,13 @@ enum WbQuickCreateKind {
   /// 按钮图标（来自 `whiteboard_icons`）。
   final IconData icon;
 
-  /// 是否为全窗工作区编辑器（第三轮问题 2）：流程图 / 表格 / 思维导图
-  /// 在独立编辑页中全窗三区显示；函数 / 3D / 2D 保持居中面板。
+  /// 是否为全窗工作区编辑器（第三轮问题 2）：流程图 / 表格 / 思维导图 /
+  /// Markdown 在独立编辑页中全窗三区显示；函数 / 3D / 2D 保持居中面板。
   bool get isWorkspace => switch (this) {
         WbQuickCreateKind.flowchart ||
         WbQuickCreateKind.table ||
-        WbQuickCreateKind.mindmap =>
+        WbQuickCreateKind.mindmap ||
+        WbQuickCreateKind.markdown =>
           true,
         WbQuickCreateKind.functionCurve ||
         WbQuickCreateKind.render3d ||
@@ -125,6 +132,12 @@ enum WbQuickCreateKind {
           onClose: onClose,
           onChanged: (WbRender2dScene scene) => onChanged?.call(scene),
         );
+      case WbQuickCreateKind.markdown:
+        return WbMarkdownEditor(
+          initialModel: WbMarkdownModel.fromPayload(initialModel),
+          onClose: onClose,
+          onChanged: (WbMarkdownModel model) => onChanged?.call(model),
+        );
     }
   }
 
@@ -155,11 +168,13 @@ enum WbQuickCreateKind {
         return const Wb3dScene();
       case WbQuickCreateKind.render2d:
         return const WbRender2dScene();
+      case WbQuickCreateKind.markdown:
+        return WbMarkdownModel.sample();
     }
   }
 }
 
-/// 快速创建按钮条（五类元素入口）。
+/// 快速创建按钮条（专业元素入口）。
 class WbQuickCreateBar extends StatelessWidget {
   /// 创建按钮条。
   const WbQuickCreateBar({

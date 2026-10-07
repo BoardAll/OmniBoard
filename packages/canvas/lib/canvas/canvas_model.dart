@@ -54,6 +54,12 @@ abstract final class WbElementKind {
   /// 2D 图元（专业元素）。
   static const String render2d = 'render2d';
 
+  /// Markdown 文档（专业元素，Markdown source 存于 payload）。
+  ///
+  /// 参照《OmniBoard Markdown 渲染与交互实现方案》§3：source 为唯一
+  /// 真实数据，AST / 布局为可重建派生数据，不进入 payload。
+  static const String markdown = 'markdown';
+
   /// 是否为专业元素（payload 承载结构模型，由
   /// `professional_painter.dart` 渲染）。
   static bool isProfessional(String type) =>
@@ -62,7 +68,8 @@ abstract final class WbElementKind {
       type == mindmap ||
       type == function ||
       type == render3d ||
-      type == render2d;
+      type == render2d ||
+      type == markdown;
 }
 
 /// 形状子类型 id（存于 [WbCanvasElement.shapeKind]）。
@@ -568,6 +575,35 @@ class WbCanvasTextCache {
   /// 失效某元素相关的全部缓存条目。
   void invalidate(String elementId) {
     _entries.removeWhere((String key, TextPainter _) => key.startsWith('$elementId|'));
+  }
+
+  /// 取（或布局）富文本（[InlineSpan]）的 [TextPainter]。
+  ///
+  /// 与 [layout] 共用同一缓存表与淘汰策略；[span] 需由调用方
+  /// 保证样式已完整（含字体回退）。Markdown 等富文本渲染使用。
+  TextPainter layoutSpan({
+    required String key,
+    required InlineSpan span,
+    required double maxWidth,
+    TextAlign align = TextAlign.left,
+    int? maxLines,
+  }) {
+    final TextPainter? cached = _entries[key];
+    if (cached != null) {
+      return cached;
+    }
+    final TextPainter painter = TextPainter(
+      text: span,
+      textDirection: TextDirection.ltr,
+      textAlign: align,
+      maxLines: maxLines,
+      ellipsis: maxLines == null ? null : '…',
+    )..layout(maxWidth: maxWidth < 1 ? 1 : maxWidth);
+    if (_entries.length >= maxEntries) {
+      _entries.clear();
+    }
+    _entries[key] = painter;
+    return painter;
   }
 
   /// 清空缓存。

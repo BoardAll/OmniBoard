@@ -283,6 +283,9 @@ enum WbContextTargetType {
   /// 流程图。
   flowchart('flowchart', '流程图'),
 
+  /// Markdown 文档。
+  markdown('markdown', 'Markdown'),
+
   /// 多选。
   multiSelect('multiSelect', '多选'),
 
@@ -789,6 +792,18 @@ abstract final class WbContextCatalog {
     ],
   );
 
+  static const WbContextToolbarSpec _markdown = WbContextToolbarSpec(
+    type: WbContextTargetType.markdown,
+    items: <WbContextItem>[
+      WbContextItem(id: 'edit', label: '编辑', icon: LinearIcons.pen, command: 'markdown.edit'),
+      WbContextItem(id: 'fullscreen', label: '全屏', icon: LinearIcons.fullscreen, command: 'markdown.fullscreen'),
+      WbContextItem(id: 'duplicate', label: '复制', icon: LinearIcons.duplicate, command: 'element.duplicate'),
+    ],
+    moreItems: <WbContextItem>[
+      WbContextItem(id: 'delete', label: '删除', icon: LinearIcons.delete, command: 'element.delete', confirm: true),
+    ],
+  );
+
   static const WbContextToolbarSpec _multiSelect = WbContextToolbarSpec(
     type: WbContextTargetType.multiSelect,
     items: <WbContextItem>[
@@ -853,6 +868,7 @@ abstract final class WbContextCatalog {
       WbContextTargetType.table => _table,
       WbContextTargetType.mindmap => _mindmap,
       WbContextTargetType.flowchart => _flowchart,
+      WbContextTargetType.markdown => _markdown,
       WbContextTargetType.multiSelect => _multiSelect,
       WbContextTargetType.frame => _frame,
       WbContextTargetType.unknown => _unknown,

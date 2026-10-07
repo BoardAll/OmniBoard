@@ -78,6 +78,7 @@ export const ELEMENT_TYPES = [
   'document',
   'annotation',
   'group',
+  'markdown',
 ] as const;
 export const ELEMENT_TYPE_SCHEMA = z.enum(ELEMENT_TYPES);
 export type ElementType = z.infer<typeof ELEMENT_TYPE_SCHEMA>;

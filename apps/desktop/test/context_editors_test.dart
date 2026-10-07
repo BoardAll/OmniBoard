@@ -24,6 +24,7 @@ import 'package:whiteboard_desktop/widgets/context_editors/mindmap_editor.dart';
 import 'package:whiteboard_desktop/widgets/context_editors/quick_create.dart';
 import 'package:whiteboard_desktop/widgets/context_editors/render3d_editor.dart';
 import 'package:whiteboard_desktop/widgets/context_editors/table_editor.dart';
+import 'package:whiteboard_desktop/widgets/markdown/markdown_editor.dart';
 
 // ---------------------------------------------------------------------------
 // 测试基建
@@ -1607,7 +1608,7 @@ void main() {
   // -------------------------------------------------------------------------
 
   group('快速创建', () {
-    testWidgets('按钮条：六类按钮与回调', (WidgetTester tester) async {
+    testWidgets('按钮条：七类按钮与回调', (WidgetTester tester) async {
       final List<WbQuickCreateKind> created = <WbQuickCreateKind>[];
       await _pumpEditor(
         tester,
@@ -1616,7 +1617,7 @@ void main() {
       );
       await tester.pump();
       expect(find.byKey(_key('wb-ctx-quick-create-bar')), findsOneWidget);
-      expect(WbQuickCreateKind.values.length, 6);
+      expect(WbQuickCreateKind.values.length, 7);
       for (final WbQuickCreateKind kind in WbQuickCreateKind.values) {
         expect(
           find.byKey(_key('wb-ctx-quick-create-${kind.id}')),
@@ -1661,7 +1662,7 @@ void main() {
       expect(find.byKey(_key('wb-ctx-quick-create-bar')), findsNothing);
     });
 
-    testWidgets('buildEditor 六类编辑器挂载与标题', (WidgetTester tester) async {
+    testWidgets('buildEditor 七类编辑器挂载与标题', (WidgetTester tester) async {
       const Map<WbQuickCreateKind, String> titles =
           <WbQuickCreateKind, String>{
         WbQuickCreateKind.flowchart: '流程图编辑器',
@@ -1670,14 +1671,17 @@ void main() {
         WbQuickCreateKind.functionCurve: '函数图像编辑器',
         WbQuickCreateKind.render3d: '3D 对象编辑器',
         WbQuickCreateKind.render2d: '2D 图元',
+        WbQuickCreateKind.markdown: 'Markdown编辑器',
       };
-      // 全窗三区工作区（问题 2 · 波次 B2~B4）：流程图 / 表格 / 思维导图的标题
-      // 由宿主编辑页 AppBar 提供，编辑器内不再渲染第二标题栏。
+      // 全窗工作区（问题 2 · 波次 B2~B4）：流程图 / 表格 / 思维导图的标题
+      // 由宿主编辑页 AppBar 提供，编辑器内不再渲染第二标题栏；Markdown 为
+      // 全窗工作区形态（顶部工具条仅标识「Markdown」与统计，无标题栏）。
       const Map<WbQuickCreateKind, Type> workspaceTypes =
           <WbQuickCreateKind, Type>{
         WbQuickCreateKind.flowchart: WbFlowchartEditor,
         WbQuickCreateKind.table: WbTableEditor,
         WbQuickCreateKind.mindmap: WbMindmapEditor,
+        WbQuickCreateKind.markdown: WbMarkdownEditor,
       };
       for (final MapEntry<WbQuickCreateKind, String> entry in titles.entries) {
         await _pumpEditor(tester, entry.key.buildEditor());

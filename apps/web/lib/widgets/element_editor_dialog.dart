@@ -11,7 +11,9 @@
 ///   （[WbWebFlowLibraryStore]）与「我的组件」二进制导入
 ///   （`wb_browser_io.dart` 的 `wbPickBinaryFile`）；
 /// - 保存返回 `_latest ?? initialModel ?? kind.defaultModel()`；取消返回
-///   null（宿主不写回）；`barrierDismissible: false`（仅按钮出口）。
+///   null（宿主不写回）；`barrierDismissible: false`（仅按钮出口）；
+/// - [showWbElementEditorDialog.onLiveChanged] 非空时编辑器每次上报即
+///   回调一次（Markdown debounce 300ms 实时回写画布 payload）。
 library;
 
 import 'dart:convert';
@@ -36,6 +38,7 @@ Future<Object?> showWbElementEditorDialog(
   required WbQuickCreateKind kind,
   Object? initialModel,
   String? elementId,
+  ValueChanged<Object>? onLiveChanged,
 }) {
   return showDialog<Object>(
     context: context,
@@ -44,6 +47,7 @@ Future<Object?> showWbElementEditorDialog(
       kind: kind,
       initialModel: initialModel,
       elementId: elementId,
+      onLiveChanged: onLiveChanged,
     ),
   );
 }
@@ -54,6 +58,7 @@ class _WbElementEditorDialog extends StatefulWidget {
     required this.kind,
     this.initialModel,
     this.elementId,
+    this.onLiveChanged,
   });
 
   /// 元素类型（决定编辑器与默认模型）。
@@ -64,6 +69,10 @@ class _WbElementEditorDialog extends StatefulWidget {
 
   /// 画布元素 id（编辑既有元素时非空；新建为 null）。
   final String? elementId;
+
+  /// 实时回写回调（可选）：编辑器每次上报即回调（Markdown debounce
+  /// 300ms），宿主据此即时写回画布 payload；null 时不启用。
+  final ValueChanged<Object>? onLiveChanged;
 
   @override
   State<_WbElementEditorDialog> createState() => _WbElementEditorDialogState();
@@ -90,6 +99,12 @@ class _WbElementEditorDialogState extends State<_WbElementEditorDialog> {
     Navigator.of(context).pop(
       _latest ?? widget.initialModel ?? widget.kind.defaultModel(),
     );
+  }
+
+  /// 编辑器上报：记录最新模型并按需实时回写（Markdown 等）。
+  void _handleChanged(Object model) {
+    _latest = model;
+    widget.onLiveChanged?.call(model);
   }
 
   /// 「我的组件」导入：浏览器文件选择（用户取消返回 null）。
@@ -136,7 +151,7 @@ class _WbElementEditorDialogState extends State<_WbElementEditorDialog> {
                 child: kind.buildEditor(
                   initialModel: widget.initialModel,
                   onClose: _cancel,
-                  onChanged: (Object model) => _latest = model,
+                  onChanged: _handleChanged,
                   libraryStore: _libraryStore,
                   componentImporter: _importComponent,
                 ),
@@ -148,7 +163,7 @@ class _WbElementEditorDialogState extends State<_WbElementEditorDialog> {
                   child: kind.buildEditor(
                     initialModel: widget.initialModel,
                     onClose: _cancel,
-                    onChanged: (Object model) => _latest = model,
+                    onChanged: _handleChanged,
                     libraryStore: _libraryStore,
                     componentImporter: _importComponent,
                   ),

@@ -283,6 +283,7 @@ class WbWebContextToolbarHostState extends State<WbWebContextToolbarHost> {
       WbElementKind.table => WbContextTargetType.table,
       WbElementKind.mindmap => WbContextTargetType.mindmap,
       WbElementKind.flowchart => WbContextTargetType.flowchart,
+      WbElementKind.markdown => WbContextTargetType.markdown,
       _ => WbContextTargetType.unknown,
     };
   }

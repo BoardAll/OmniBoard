@@ -28,6 +28,7 @@ class WbElementEditorRequest {
     required this.kind,
     this.initialModel,
     this.elementId,
+    this.onLiveChanged,
   });
 
   /// 元素类型（决定编辑器与默认模型）。
@@ -38,6 +39,11 @@ class WbElementEditorRequest {
 
   /// 画布元素 id（编辑既有元素时非空；新建为 null）。
   final String? elementId;
+
+  /// 实时回写回调（可选）：编辑器每次上报（如 Markdown debounce 300ms）
+  /// 即回调一次，宿主可据此即时写回画布 payload；null 时不启用
+  /// （仅保存时经 `pop(model)` 一次性回写）。
+  final ValueChanged<Object>? onLiveChanged;
 
   /// 是否为编辑既有元素（否则为新建）。
   bool get isEditing => elementId != null && elementId!.isNotEmpty;
@@ -87,7 +93,10 @@ class _ElementEditorPageState extends State<ElementEditorPage> {
     return kind.buildEditor(
       initialModel: widget.request.initialModel,
       onClose: _cancel,
-      onChanged: (Object model) => _latest = model,
+      onChanged: (Object model) {
+        _latest = model;
+        widget.request.onLiveChanged?.call(model);
+      },
       libraryStore:
           settings == null ? null : WbDesktopFlowLibraryStore(settings),
       componentImporter: _importComponent,

@@ -13,7 +13,7 @@
 /// ```
 ///
 /// 元素的基础字段复用 [WbCanvasElement.toJson]（契约形状）；专业元素
-/// payload（6 种结构模型 + 图片 Map）由本文件实现 toJson / fromJson
+/// payload（7 种结构模型 + 图片 Map）由本文件实现 toJson / fromJson
 /// （写在编解码层而非各编辑器，避免大文件改动）。
 ///
 /// 容错口径：坏 JSON / 非白板文件 / 版本过新抛 [FormatException]；
@@ -34,6 +34,7 @@ import '../context_editors/mindmap_editor.dart';
 import '../context_editors/render2d_editor.dart';
 import '../context_editors/render3d_editor.dart';
 import '../context_editors/table_editor.dart';
+import '../markdown/markdown_model.dart';
 
 /// 白板文档数据（文件编解码的中转结构，与 UI 状态解耦）。
 class WbBoardData {
@@ -305,6 +306,8 @@ abstract final class WbBoardFileCodec {
         return payload is Wb3dScene ? _render3dToJson(payload) : null;
       case WbElementKind.render2d:
         return payload is WbRender2dScene ? _render2dToJson(payload) : null;
+      case WbElementKind.markdown:
+        return payload is WbMarkdownModel ? payload.toJson() : null;
       default:
         return payload is Map ? Map<String, dynamic>.from(payload) : null;
     }
@@ -332,6 +335,8 @@ abstract final class WbBoardFileCodec {
         return _render3dFromJson(json);
       case WbElementKind.render2d:
         return _render2dFromJson(json);
+      case WbElementKind.markdown:
+        return WbMarkdownModel.fromJson(json);
       default:
         return json;
     }

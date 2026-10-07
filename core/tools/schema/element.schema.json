@@ -26,7 +26,8 @@
         "render2d",
         "document",
         "annotation",
-        "group"
+        "group",
+        "markdown"
       ]
     },
     "name": { "type": "string" },

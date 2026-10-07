@@ -253,6 +253,7 @@ class WbCanvasPainter extends CustomPainter {
       case WbElementKind.function:
       case WbElementKind.render3d:
       case WbElementKind.render2d:
+      case WbElementKind.markdown:
         _paintProfessional(canvas, element);
       default:
         // 引擎扩展的未知类型不绘制（前向兼容）。
