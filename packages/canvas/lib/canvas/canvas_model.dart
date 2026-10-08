@@ -218,6 +218,7 @@ class WbCanvasElement {
     this.color = 0xFF3370FF,
     this.strokeWidth = 2,
     this.shapeKind = WbShapeKindId.rect,
+    this.penStyle = 'pen',
     this.points = const <Offset>[],
     this.fontSize = 0,
     this.textAlign = WbTextAlignId.left,
@@ -259,6 +260,9 @@ class WbCanvasElement {
 
   /// 形状子类型 id，见 [WbShapeKindId]。
   final String shapeKind;
+
+  /// 笔触 id（仅 [WbElementKind.drawing]；未知值按实线画笔处理）。
+  final String penStyle;
 
   /// 笔迹采样点（世界坐标，仅 [WbElementKind.drawing]）。
   final List<Offset> points;
@@ -326,6 +330,7 @@ class WbCanvasElement {
     int? color,
     double? strokeWidth,
     String? shapeKind,
+    String? penStyle,
     List<Offset>? points,
     double? fontSize,
     String? textAlign,
@@ -346,6 +351,7 @@ class WbCanvasElement {
       color: color ?? this.color,
       strokeWidth: strokeWidth ?? this.strokeWidth,
       shapeKind: shapeKind ?? this.shapeKind,
+      penStyle: penStyle ?? this.penStyle,
       points: points ?? this.points,
       fontSize: fontSize ?? this.fontSize,
       textAlign: textAlign ?? this.textAlign,
@@ -368,6 +374,7 @@ class WbCanvasElement {
       'color': WbColorUtils.toHex(Color(color), withAlpha: true),
       'strokeWidth': strokeWidth,
       'shapeKind': shapeKind,
+      'penStyle': penStyle,
       'fontSize': fontSize,
       'textAlign': textAlign,
       'name': name,
@@ -425,6 +432,7 @@ class WbCanvasElement {
       shapeKind: raw['shapeKind'] is String
           ? raw['shapeKind'] as String
           : WbShapeKindId.rect,
+      penStyle: raw['penStyle'] is String ? raw['penStyle'] as String : 'pen',
       points: points,
       fontSize: rawFontSize,
       textAlign: raw['textAlign'] is String

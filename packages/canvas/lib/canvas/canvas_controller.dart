@@ -24,6 +24,7 @@ import '../context_editors/render3d_editor.dart';
 import '../markdown/markdown_painter.dart';
 import 'canvas_image_cache.dart';
 import 'canvas_model.dart';
+import 'stroke_style.dart';
 import 'canvas_store.dart';
 import 'wb3d_projection.dart';
 
@@ -530,6 +531,8 @@ class WbCanvasController extends ChangeNotifier {
   int _noteColor = WbCanvasPalette.noteColors.first;
   int _shapeColor = WbCanvasPalette.shapeColors.first;
   int _penColor = WbCanvasPalette.penColors.first;
+  int _highlightColor = WbCanvasPalette.highlightColor;
+  WbPenStyle _penStyle = WbPenStyle.pen;
   double _penWidth = WbCanvasPalette.penWidths[1];
   bool _spacePressed = false;
   Wb3dObjectType _render3dType = Wb3dObjectType.box;
@@ -548,6 +551,12 @@ class WbCanvasController extends ChangeNotifier {
 
   /// 画笔颜色。
   int get penColor => _penColor;
+
+  /// 荧光笔颜色（含透明度）。
+  int get highlightColor => _highlightColor;
+
+  /// 当前画笔笔触。荧光笔绘制时忽略，仍走实线。
+  WbPenStyle get penStyle => _penStyle;
 
   /// 画笔线宽。
   double get penWidth => _penWidth;
@@ -608,6 +617,24 @@ class WbCanvasController extends ChangeNotifier {
       return;
     }
     _penColor = color;
+    notifyListeners();
+  }
+
+  /// 设置荧光笔颜色（保留调用方传入的透明度）。
+  void setHighlightColor(int color) {
+    if (_highlightColor == color) {
+      return;
+    }
+    _highlightColor = color;
+    notifyListeners();
+  }
+
+  /// 设置画笔笔触。
+  void setPenStyle(WbPenStyle style) {
+    if (_penStyle == style) {
+      return;
+    }
+    _penStyle = style;
     notifyListeners();
   }
 
@@ -1888,7 +1915,7 @@ class WbCanvasController extends ChangeNotifier {
         for (final Offset p in delta) <double>[p.dx, p.dy],
       ],
       'style': <String, dynamic>{
-        'color': highlight ? WbCanvasPalette.highlightColor : _penColor,
+        'color': highlight ? _highlightColor : _penColor,
         'width': highlight ? 14 : _penWidth,
       },
       'highlight': highlight,
@@ -2119,8 +2146,9 @@ class WbCanvasController extends ChangeNotifier {
       width: bounds.width,
       height: bounds.height,
       zIndex: _nextZIndex(),
-      color: highlight ? WbCanvasPalette.highlightColor : _penColor,
+      color: highlight ? _highlightColor : _penColor,
       strokeWidth: highlight ? 14 : _penWidth,
+      penStyle: highlight ? WbPenStyle.pen.id : _penStyle.id,
       points: List<Offset>.unmodifiable(simplified),
     );
     _beginEdit();

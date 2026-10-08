@@ -15,11 +15,11 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import 'package:whiteboard_icons/icons.dart';
 import 'package:whiteboard_theme/theme.dart';
+import 'package:whiteboard_canvas/context_editors/flow_components.dart';
 import 'package:whiteboard_windows/whiteboard_windows.dart';
 
 import '../services/settings_store.dart';
 import '../widgets/context_editors/context_editor_shell.dart';
-import '../widgets/context_editors/flowchart_editor.dart';
 import '../widgets/context_editors/quick_create.dart';
 
 /// 元素编辑请求（路由 `extra`；新建时 [elementId] 为 null）。

@@ -937,12 +937,12 @@ class _SyncStatusChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final WbSyncService sync = context.watch<WbSyncService>();
+    final WbCollabService sync = context.watch<WbCollabService>();
     final bool online = sync.isOnline;
     final MiuixThemeData theme = MiuixTheme.of(context);
     final Color muted = theme.colors.onSurfaceVariantSummary;
     return Tooltip(
-      message: sync.serverUrl.isEmpty ? '未配置协作服务地址' : sync.serverUrl,
+      message: sync.endpoint.isEmpty ? '未配置协作服务地址' : sync.endpoint,
       child: Container(
         margin: const EdgeInsets.symmetric(horizontal: 4),
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),

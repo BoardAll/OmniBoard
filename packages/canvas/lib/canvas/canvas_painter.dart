@@ -24,6 +24,7 @@ import 'background_painter.dart';
 import 'canvas_image_cache.dart';
 import 'canvas_controller.dart';
 import 'canvas_model.dart';
+import 'stroke_style.dart';
 import 'professional_painter.dart';
 import 'wb3d_projection.dart';
 
@@ -239,11 +240,12 @@ class WbCanvasPainter extends CustomPainter {
       case WbElementKind.image:
         _paintImage(canvas, element);
       case WbElementKind.drawing:
-        _paintStroke(
+        paintWbPenStroke(
           canvas,
           element.points,
           Color(element.color),
           element.strokeWidth,
+          WbPenStyle.fromId(element.penStyle),
         );
       case WbElementKind.connector:
         _paintConnector(canvas, element);
@@ -544,13 +546,12 @@ class WbCanvasPainter extends CustomPainter {
       return;
     }
     final bool highlight = controller.tool == WbCanvasTool.highlighter;
-    _paintStroke(
+    paintWbPenStroke(
       canvas,
       stroke,
-      highlight
-          ? const Color(WbCanvasPalette.highlightColor)
-          : Color(controller.penColor),
+      highlight ? Color(controller.highlightColor) : Color(controller.penColor),
       highlight ? 14 : controller.penWidth,
+      highlight ? WbPenStyle.pen : controller.penStyle,
     );
   }
 
