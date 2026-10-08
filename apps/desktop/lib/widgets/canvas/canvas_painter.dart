@@ -23,6 +23,7 @@ import 'background_painter.dart';
 import 'canvas_image_cache.dart';
 import 'canvas_controller.dart';
 import 'canvas_model.dart';
+import 'stroke_style.dart';
 import 'professional_painter.dart';
 import 'wb3d_projection.dart';
 
@@ -211,11 +212,12 @@ class WbCanvasPainter extends CustomPainter {
       case WbElementKind.image:
         _paintImage(canvas, element);
       case WbElementKind.drawing:
-        _paintStroke(
+        paintWbPenStroke(
           canvas,
           element.points,
           Color(element.color),
           element.strokeWidth,
+          WbPenStyle.fromId(element.penStyle),
         );
       case WbElementKind.connector:
         _paintConnector(canvas, element);
@@ -241,7 +243,8 @@ class WbCanvasPainter extends CustomPainter {
     final Rect rect = element.bounds;
     final RRect rrect =
         RRect.fromRectAndRadius(rect, const Radius.circular(_imageRadius));
-    canvas.drawRRect(rrect, Paint()..color = const Color(WbCanvasPalette.imageFill));
+    canvas.drawRRect(
+        rrect, Paint()..color = const Color(WbCanvasPalette.imageFill));
     canvas.drawRRect(
       rrect,
       Paint()
@@ -320,7 +323,8 @@ class WbCanvasPainter extends CustomPainter {
       maxWidth: rect.width,
       align: WbTextAlignId.toTextAlign(element.textAlign),
     );
-    final double dy = rect.top + math.max(0, (rect.height - painter.height) / 2);
+    final double dy =
+        rect.top + math.max(0, (rect.height - painter.height) / 2);
     painter.paint(canvas, Offset(rect.left, dy));
   }
 
@@ -479,34 +483,6 @@ class WbCanvasPainter extends CustomPainter {
     );
   }
 
-  void _paintStroke(
-    Canvas canvas,
-    List<Offset> points,
-    Color color,
-    double width,
-  ) {
-    if (points.isEmpty) {
-      return;
-    }
-    if (points.length == 1) {
-      canvas.drawCircle(points.first, width / 2, Paint()..color = color);
-      return;
-    }
-    final Path path = Path()..moveTo(points.first.dx, points.first.dy);
-    for (int i = 1; i < points.length; i++) {
-      path.lineTo(points[i].dx, points[i].dy);
-    }
-    canvas.drawPath(
-      path,
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = width
-        ..strokeCap = StrokeCap.round
-        ..strokeJoin = StrokeJoin.round
-        ..color = color,
-    );
-  }
-
   // ---- 手势预览 ---------------------------------------------------------
 
   void _paintStrokePreview(Canvas canvas) {
@@ -515,13 +491,12 @@ class WbCanvasPainter extends CustomPainter {
       return;
     }
     final bool highlight = controller.tool == WbCanvasTool.highlighter;
-    _paintStroke(
+    paintWbPenStroke(
       canvas,
       stroke,
-      highlight
-          ? const Color(WbCanvasPalette.highlightColor)
-          : Color(controller.penColor),
+      Color(highlight ? controller.highlightColor : controller.penColor),
       highlight ? 14 : controller.penWidth,
+      highlight ? WbPenStyle.pen : controller.penStyle,
     );
   }
 
@@ -671,8 +646,7 @@ class WbCanvasPainter extends CustomPainter {
   /// 几何由 [WbCanvasController.sizeBadgeScreenRect] 单一来源给出，
   /// 这里只绘制（每帧读取，缩放柄拖动 / 滚轮缩放时自动跟随）。
   void _paintSizeBadge(Canvas canvas, Rect rect) {
-    final RRect rrect =
-        RRect.fromRectAndRadius(rect, const Radius.circular(4));
+    final RRect rrect = RRect.fromRectAndRadius(rect, const Radius.circular(4));
     canvas.drawRRect(rrect, Paint()..color = const Color(0xE01F2933));
     final TextPainter painter = TextPainter(
       text: TextSpan(

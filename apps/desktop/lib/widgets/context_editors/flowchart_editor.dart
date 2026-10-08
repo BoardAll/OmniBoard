@@ -38,6 +38,7 @@ import 'package:whiteboard_icons/icons.dart';
 import 'package:whiteboard_theme/theme.dart';
 import 'package:whiteboard_ui_kit/ui_kit.dart';
 
+import '../miuix_dialog.dart';
 import 'context_editor_shell.dart';
 import 'editor_workspace.dart';
 
@@ -1398,7 +1399,7 @@ class _WbFlowchartEditorState extends State<WbFlowchartEditor> {
     }
     final TextEditingController controller =
         TextEditingController(text: node.text);
-    showDialog<void>(
+    showWbMiuixDialog<void>(
       context: context,
       builder: (BuildContext dialogContext) {
         void submit() {
@@ -1406,28 +1407,32 @@ class _WbFlowchartEditorState extends State<WbFlowchartEditor> {
           Navigator.of(dialogContext).pop();
         }
 
-        return AlertDialog(
+        return WbMiuixDialog(
           key: const ValueKey<String>('wb-ctx-flow-node-editor'),
-          title: const Text('编辑节点文本'),
-          content: TextField(
-            key: const ValueKey<String>('wb-ctx-flow-node-editor-field'),
-            controller: controller,
-            autofocus: true,
-            minLines: 1,
-            maxLines: 2,
-            decoration: wbEditorInputDecoration(dialogContext, hint: '输入节点文本'),
-            onSubmitted: (String _) => submit(),
-          ),
-          actions: <Widget>[
-            TextButton(
-              key: const ValueKey<String>('wb-ctx-flow-node-editor-cancel'),
-              onPressed: () => Navigator.of(dialogContext).pop(),
-              child: const Text('取消'),
+          title: '编辑节点文本',
+          width: 320,
+          content: Builder(
+            builder: (BuildContext context) => TextField(
+              key: const ValueKey<String>('wb-ctx-flow-node-editor-field'),
+              controller: controller,
+              autofocus: true,
+              minLines: 1,
+              maxLines: 2,
+              decoration: wbMiuixFieldDecoration(context, hint: '输入节点文本'),
+              onSubmitted: (String _) => submit(),
             ),
-            FilledButton(
+          ),
+          actions: <WbDialogAction>[
+            WbDialogAction(
+              key: const ValueKey<String>('wb-ctx-flow-node-editor-cancel'),
+              label: '取消',
+              onPressed: () => Navigator.of(dialogContext).pop(),
+            ),
+            WbDialogAction(
               key: const ValueKey<String>('wb-ctx-flow-node-editor-confirm'),
+              label: '确定',
+              primary: true,
               onPressed: submit,
-              child: const Text('确定'),
             ),
           ],
         );

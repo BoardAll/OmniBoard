@@ -21,6 +21,7 @@ import 'package:whiteboard_theme/theme.dart';
 import '../context_editors/quick_create.dart';
 import '../context_editors/render3d_editor.dart';
 import 'canvas_controller.dart';
+import 'stroke_style.dart';
 import 'canvas_model.dart';
 
 /// 悬浮面板统一样式（工具调色板 / 缩放控件共用）。
@@ -81,7 +82,8 @@ class WbCanvasIconButton extends StatelessWidget {
         ? (active ? colors.primary : colors.toolbarIcon)
         : colors.toolbarIcon.withValues(alpha: 0.35);
     final Widget button = Material(
-      color: active ? colors.primary.withValues(alpha: 0.12) : Colors.transparent,
+      color:
+          active ? colors.primary.withValues(alpha: 0.12) : Colors.transparent,
       borderRadius: BorderRadius.circular(6),
       child: InkWell(
         onTap: enabled ? onTap : null,
@@ -207,8 +209,7 @@ class WbCanvasToolPalette extends StatelessWidget {
 
   /// 「更多」弹出菜单（B3：圆盘绘图能力并入顶部面板）。
   Future<void> _showMoreMenu(BuildContext buttonContext) async {
-    final RenderBox button =
-        buttonContext.findRenderObject()! as RenderBox;
+    final RenderBox button = buttonContext.findRenderObject()! as RenderBox;
     final RenderBox overlay = Navigator.of(buttonContext)
         .overlay!
         .context
@@ -338,8 +339,7 @@ class WbCanvasToolPalette extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
             for (final WbShapeKind kind in WbShapeKind.values) ...<Widget>[
-              if (kind != WbShapeKind.values.first)
-                const SizedBox(width: 4),
+              if (kind != WbShapeKind.values.first) const SizedBox(width: 4),
               _ShapeKindButton(
                 key: ValueKey<String>('wb-canvas-shape-kind-${kind.id}'),
                 kind: kind,
@@ -364,9 +364,9 @@ class WbCanvasToolPalette extends StatelessWidget {
         return Row(
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
-            for (final Wb3dObjectType type in Wb3dObjectType.values) ...<Widget>[
-              if (type != Wb3dObjectType.values.first)
-                const SizedBox(width: 4),
+            for (final Wb3dObjectType type
+                in Wb3dObjectType.values) ...<Widget>[
+              if (type != Wb3dObjectType.values.first) const SizedBox(width: 4),
               _ObjectTypeButton(
                 key: ValueKey<String>('wb-canvas-3d-type-${type.id}'),
                 type: type,
@@ -390,21 +390,46 @@ class WbCanvasToolPalette extends StatelessWidget {
       case WbCanvasTool.pen:
       case WbCanvasTool.highlighter:
       case WbCanvasTool.connector:
+        final bool highlight = controller.tool == WbCanvasTool.highlighter;
+        final int highlightAlpha = controller.highlightColor & 0xFF000000;
         return Row(
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
             _swatchRow(
               prefix: 'pen',
-              label: '画笔颜色',
-              palette: WbCanvasPalette.penColors,
-              current: controller.penColor,
-              onPick: controller.setPenColor,
+              label: highlight ? '荧光笔颜色' : '画笔颜色',
+              palette: highlight
+                  ? <int>[
+                      for (final int c in WbCanvasPalette.penColors)
+                        (c & 0x00FFFFFF) | highlightAlpha,
+                    ]
+                  : WbCanvasPalette.penColors,
+              current:
+                  highlight ? controller.highlightColor : controller.penColor,
+              onPick: highlight
+                  ? controller.setHighlightColor
+                  : controller.setPenColor,
             ),
+            if (!highlight && controller.tool == WbCanvasTool.pen) ...<Widget>[
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                child: Container(width: 1, height: 18, color: colors.border),
+              ),
+              for (final WbPenStyle style in WbPenStyle.values)
+                _StyleChip(
+                  key: ValueKey<String>('wb-canvas-pen-style-${style.id}'),
+                  label: style.label,
+                  active: controller.penStyle == style,
+                  onTap: () => controller.setPenStyle(style),
+                ),
+            ],
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 8),
               child: Container(width: 1, height: 18, color: colors.border),
             ),
-            for (int i = 0; i < WbCanvasPalette.penWidths.length; i++) ...<Widget>[
+            for (int i = 0;
+                i < WbCanvasPalette.penWidths.length;
+                i++) ...<Widget>[
               if (i > 0) const SizedBox(width: 4),
               _WidthDot(
                 key: ValueKey<String>('wb-canvas-pen-width-$i'),
@@ -593,6 +618,49 @@ class _ShapeKindButton extends StatelessWidget {
             child: CustomPaint(
               painter: _ShapeGlyphPainter(kind: kind, color: glyph),
             ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 画笔笔触按钮。
+class _StyleChip extends StatelessWidget {
+  const _StyleChip({
+    super.key,
+    required this.label,
+    required this.active,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool active;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final WbThemeColors colors = context.wbColors;
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(
+        onTap: onTap,
+        child: Container(
+          height: 26,
+          padding: const EdgeInsets.symmetric(horizontal: 7),
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: active
+                ? colors.primary.withValues(alpha: 0.12)
+                : Colors.transparent,
+            borderRadius: BorderRadius.circular(5),
+          ),
+          child: Text(
+            label,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: active ? colors.primary : colors.toolbarIcon,
+                  fontWeight: active ? FontWeight.w600 : null,
+                ),
           ),
         ),
       ),

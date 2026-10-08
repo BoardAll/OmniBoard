@@ -22,6 +22,7 @@ import '../../state/selection_state.dart';
 import '../context_editors/render3d_editor.dart';
 import 'canvas_image_cache.dart';
 import 'canvas_model.dart';
+import 'stroke_style.dart';
 import 'canvas_store.dart';
 import 'wb3d_projection.dart';
 
@@ -100,8 +101,7 @@ enum WbSelectionHandle {
   left;
 
   /// 该柄拖动左侧边。
-  bool get movesLeft =>
-      this == topLeft || this == left || this == bottomLeft;
+  bool get movesLeft => this == topLeft || this == left || this == bottomLeft;
 
   /// 该柄拖动右侧边。
   bool get movesRight =>
@@ -244,8 +244,8 @@ class WbCanvasController extends ChangeNotifier {
       );
 
   /// 世界矩形 → 屏幕矩形。
-  Rect worldRectToScreen(Rect rect) =>
-      Rect.fromPoints(worldToScreen(rect.topLeft), worldToScreen(rect.bottomRight));
+  Rect worldRectToScreen(Rect rect) => Rect.fromPoints(
+      worldToScreen(rect.topLeft), worldToScreen(rect.bottomRight));
 
   /// 按屏幕像素平移视图。
   void panBy(Offset screenDelta) {
@@ -363,7 +363,9 @@ class WbCanvasController extends ChangeNotifier {
   int _noteColor = WbCanvasPalette.noteColors.first;
   int _shapeColor = WbCanvasPalette.shapeColors.first;
   int _penColor = WbCanvasPalette.penColors.first;
+  int _highlightColor = WbCanvasPalette.highlightColor;
   double _penWidth = WbCanvasPalette.penWidths[1];
+  WbPenStyle _penStyle = WbPenStyle.pen;
   bool _spacePressed = false;
   Wb3dObjectType _render3dType = Wb3dObjectType.box;
 
@@ -382,8 +384,14 @@ class WbCanvasController extends ChangeNotifier {
   /// 画笔颜色。
   int get penColor => _penColor;
 
+  /// 荧光笔颜色（ARGB，含透明度）。
+  int get highlightColor => _highlightColor;
+
   /// 画笔线宽。
   double get penWidth => _penWidth;
+
+  /// 画笔笔触（铅笔 / 粉笔 / 圆珠笔 / 刷子）。
+  WbPenStyle get penStyle => _penStyle;
 
   /// 空格键是否按下（临时平移）。
   bool get spacePressed => _spacePressed;
@@ -444,12 +452,30 @@ class WbCanvasController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// 设置荧光笔颜色。
+  void setHighlightColor(int color) {
+    if (_highlightColor == color) {
+      return;
+    }
+    _highlightColor = color;
+    notifyListeners();
+  }
+
   /// 设置画笔线宽。
   void setPenWidth(double width) {
     if (_penWidth == width) {
       return;
     }
     _penWidth = width;
+    notifyListeners();
+  }
+
+  /// 设置画笔笔触。
+  void setPenStyle(WbPenStyle style) {
+    if (_penStyle == style) {
+      return;
+    }
+    _penStyle = style;
     notifyListeners();
   }
 
@@ -688,7 +714,8 @@ class WbCanvasController extends ChangeNotifier {
     return element.bounds.contains(world);
   }
 
-  bool _hitStroke(WbCanvasElement element, Offset point, {required double tolerance}) {
+  bool _hitStroke(WbCanvasElement element, Offset point,
+      {required double tolerance}) {
     final List<Offset> points = element.points;
     if (points.isEmpty) {
       return element.bounds.inflate(tolerance).contains(point);
@@ -892,7 +919,8 @@ class WbCanvasController extends ChangeNotifier {
       case WbCanvasTool.image:
       case WbCanvasTool.connector:
         _gesture = WbCanvasGesture.createElement;
-        _createPreview = Rect.fromPoints(_gestureStartWorld, _gestureStartWorld);
+        _createPreview =
+            Rect.fromPoints(_gestureStartWorld, _gestureStartWorld);
         notifyListeners();
         return;
       case WbCanvasTool.render3d:
@@ -1017,7 +1045,8 @@ class WbCanvasController extends ChangeNotifier {
       case WbCanvasGesture.draw:
         _appendStrokePoint(screenToWorld(screen));
       case WbCanvasGesture.createElement:
-        _createPreview = Rect.fromPoints(_gestureStartWorld, screenToWorld(screen));
+        _createPreview =
+            Rect.fromPoints(_gestureStartWorld, screenToWorld(screen));
         notifyListeners();
       case WbCanvasGesture.moveElements:
         _applyMove(screen - _gestureStartScreen);
@@ -1126,7 +1155,8 @@ class WbCanvasController extends ChangeNotifier {
   }
 
   /// 触控板 PanZoom 手势更新（双指平移 + 捏合缩放）。
-  void handlePanZoomUpdate(Offset localPosition, Offset panDelta, double scale) {
+  void handlePanZoomUpdate(
+      Offset localPosition, Offset panDelta, double scale) {
     if (panDelta != Offset.zero) {
       panBy(panDelta);
     }
@@ -1646,8 +1676,9 @@ class WbCanvasController extends ChangeNotifier {
       width: bounds.width,
       height: bounds.height,
       zIndex: _nextZIndex(),
-      color: highlight ? WbCanvasPalette.highlightColor : _penColor,
+      color: highlight ? _highlightColor : _penColor,
       strokeWidth: highlight ? 14 : _penWidth,
+      penStyle: highlight ? WbPenStyle.pen.id : _penStyle.id,
       points: List<Offset>.unmodifiable(points),
     );
     _beginEdit();
@@ -1813,7 +1844,8 @@ class WbCanvasController extends ChangeNotifier {
       return;
     }
     _beginEdit();
-    document.upsert(_pageId, element.copyWith(payload: _imagePayload(path, image)));
+    document.upsert(
+        _pageId, element.copyWith(payload: _imagePayload(path, image)));
     _commitEdit();
     notifyListeners();
   }
@@ -2314,7 +2346,8 @@ class WbCanvasController extends ChangeNotifier {
     _flushRender3dSizeSession();
     cancelGesture();
     endTextEditing();
-    for (final MapEntry<String, List<WbCanvasElement>> entry in byPage.entries) {
+    for (final MapEntry<String, List<WbCanvasElement>> entry
+        in byPage.entries) {
       final List<WbCanvasElement> list = List<WbCanvasElement>.of(entry.value);
       document.replace(entry.key, list);
       try {
@@ -2461,8 +2494,7 @@ class WbCanvasController extends ChangeNotifier {
         'hcenter' => element.copyWith(x: bounds.center.dx - element.width / 2),
         'right' => element.copyWith(x: bounds.right - element.width),
         'top' => element.copyWith(y: bounds.top),
-        'vcenter' =>
-          element.copyWith(y: bounds.center.dy - element.height / 2),
+        'vcenter' => element.copyWith(y: bounds.center.dy - element.height / 2),
         'bottom' => element.copyWith(y: bounds.bottom - element.height),
         _ => element,
       };
@@ -2720,7 +2752,8 @@ class WbCanvasController extends ChangeNotifier {
       zoomBy(1 / 1.2);
       return true;
     }
-    if (key == LogicalKeyboardKey.delete || key == LogicalKeyboardKey.backspace) {
+    if (key == LogicalKeyboardKey.delete ||
+        key == LogicalKeyboardKey.backspace) {
       deleteSelected();
       return true;
     }
@@ -2798,8 +2831,7 @@ class WbCanvasController extends ChangeNotifier {
       return;
     }
     try {
-      final Map<String, WbCanvasElement> beforeById =
-          <String, WbCanvasElement>{
+      final Map<String, WbCanvasElement> beforeById = <String, WbCanvasElement>{
         for (final WbCanvasElement e in before) e.id: e,
       };
       for (final WbCanvasElement element in elements) {
@@ -2847,8 +2879,7 @@ class WbCanvasController extends ChangeNotifier {
         if (!id.startsWith(_elementIdPrefix)) {
           continue;
         }
-        final int? parsed =
-            int.tryParse(id.substring(_elementIdPrefix.length));
+        final int? parsed = int.tryParse(id.substring(_elementIdPrefix.length));
         if (parsed != null && parsed > _sequence) {
           _sequence = parsed;
         }

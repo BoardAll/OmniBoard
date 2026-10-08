@@ -5,6 +5,7 @@
 library;
 
 import 'package:flutter/material.dart';
+import 'package:flutter_miuix/miuix.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:whiteboard_desktop/widgets/canvas/element_size_dialog.dart';
 
@@ -88,7 +89,7 @@ void main() {
     final Finder confirm =
         find.byKey(const ValueKey<String>('wb-size-confirm'));
 
-    FilledButton confirmButton() => tester.widget<FilledButton>(confirm);
+    MiuixButton confirmButton() => tester.widget<MiuixButton>(confirm);
 
     // 0：禁用。
     await tester.enterText(widthField, '0');

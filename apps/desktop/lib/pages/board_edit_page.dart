@@ -8,6 +8,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_miuix/miuix.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import 'package:whiteboard_core/wb_core.dart';
@@ -205,8 +206,8 @@ class _BoardEditPageState extends State<BoardEditPage> {
       _pageState.attach(board);
     }
     // 新建流程在加载完成后绑定：初始化通知不误标脏。
-    _fileService
-        ?.bindBoard(board: _boardState, pages: _pageState, canvas: _canvas);
+    _fileService?.bindBoard(
+        board: _boardState, pages: _pageState, canvas: _canvas);
   }
 
   /// 返回列表：有未保存改动先走三选询问（保存成功 / 不保存才离开）。
@@ -407,8 +408,7 @@ class _BoardEditPageState extends State<BoardEditPage> {
       return false;
     }
     final HardwareKeyboard keyboard = HardwareKeyboard.instance;
-    final bool ctrlOrCmd =
-        keyboard.isControlPressed || keyboard.isMetaPressed;
+    final bool ctrlOrCmd = keyboard.isControlPressed || keyboard.isMetaPressed;
     if (ctrlOrCmd && event.logicalKey == LogicalKeyboardKey.keyS) {
       unawaited(_saveBoard());
       return true;
@@ -644,10 +644,8 @@ class _BoardEditPageState extends State<BoardEditPage> {
     if (area.width <= 0 || area.height <= 0) {
       return offset;
     }
-    final double freeX =
-        area.width - _radialRightInset - _radialFrameExtent;
-    final double freeY =
-        area.height - _radialBottomInset - _radialFrameExtent;
+    final double freeX = area.width - _radialRightInset - _radialFrameExtent;
+    final double freeY = area.height - _radialBottomInset - _radialFrameExtent;
     final double dxMin = math.min(-freeX, _radialRightInset);
     final double dxMax = math.max(-freeX, _radialRightInset);
     final double dyMin = math.min(-freeY, _radialBottomInset);
@@ -682,8 +680,8 @@ class _BoardEditPageState extends State<BoardEditPage> {
     if (!mounted || model == null) {
       return;
     }
-    final Size measured = WbProfessionalRenderer.measure(kind.id, model) ??
-        const Size(320, 240);
+    final Size measured =
+        WbProfessionalRenderer.measure(kind.id, model) ?? const Size(320, 240);
     _canvas.insertElement(type: kind.id, size: measured, payload: model);
     // 问题 4：创建完成后回切选择模式。
     _canvas.setTool(WbCanvasTool.select);
@@ -707,8 +705,8 @@ class _BoardEditPageState extends State<BoardEditPage> {
     if (!mounted || model == null) {
       return;
     }
-    final Size measured = WbProfessionalRenderer.measure(kind.id, model) ??
-        const Size(320, 240);
+    final Size measured =
+        WbProfessionalRenderer.measure(kind.id, model) ?? const Size(320, 240);
     _canvas.updateElement(
       element.id,
       (WbCanvasElement current) => current.copyWith(
@@ -740,176 +738,195 @@ class _BoardEditPageState extends State<BoardEditPage> {
     final WbThemeColors colors = context.wbColors;
     // B3：工具栏风格二选一（圆盘 / 顶部工具面板）。
     final WbThemeState themeState = context.watch<WbThemeState>();
-    final bool topToolbar = themeState.appearance.toolbarStyle ==
-        WbAppearancePrefs.toolbarStyleTop;
+    final bool topToolbar =
+        themeState.appearance.toolbarStyle == WbAppearancePrefs.toolbarStyleTop;
     // C2：显示桌面（透明批注）时白板内容整体让位，仅保留批注组合层。
     if (_desktopAnnotation) {
       return _buildDesktopAnnotation(topToolbar);
     }
     return Scaffold(
-      appBar: AppBar(
-        backgroundColor: colors.surface,
-        leading: IconButton(
-          tooltip: '返回列表',
-          icon: const Icon(LinearIcons.back),
-          onPressed: () => unawaited(_leave()),
-        ),
-        title: Consumer<WbBoardState>(
-          builder: (BuildContext context, WbBoardState state, Widget? child) {
-            // 未保存脏标记（文件服务未挂载时不显示）。
-            final bool dirty = context
-                    .watch<WbBoardFileService?>()
-                    ?.hasUnsavedChanges ==
-                true;
-            return Row(
-              children: <Widget>[
-                Flexible(
-                  child: Text(
-                    '${state.board?.name ?? '加载中…'}${dirty ? ' •' : ''}',
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-                if (state.isDemoMode) ...<Widget>[
-                  const SizedBox(width: 12),
-                  Tooltip(
-                    message: '核心引擎未加载，当前为演示模式',
-                    child: Chip(
-                      label: const Text('演示'),
-                      labelStyle: Theme.of(context).textTheme.bodySmall,
-                      side: BorderSide(color: colors.border),
-                      backgroundColor: colors.canvas,
-                    ),
-                  ),
-                ],
-              ],
-            );
-          },
-        ),
-        actions: <Widget>[
-          IconButton(
-            tooltip: '保存白板（Ctrl+S）',
-            icon: const Icon(LinearIcons.save),
-            onPressed: () => unawaited(_saveBoard()),
+      body: Column(
+        children: <Widget>[
+          MiuixTheme(
+            data: MiuixThemeData.of(Theme.of(context).brightness),
+            child: _buildTopBar(colors),
           ),
-          IconButton(
-            tooltip: '打开本地白板',
-            icon: const Icon(LinearIcons.folder),
-            onPressed: () => unawaited(_openLocalBoard()),
-          ),
-          const _SyncStatusChip(),
-          IconButton(
-            tooltip: '显示桌面',
-            icon: const Icon(LinearIcons.fitScreen),
-            onPressed: () => unawaited(_annotation.enter()),
-          ),
-          IconButton(
-            tooltip: _aiOpen ? '收起 AI 面板' : '展开 AI 面板',
-            icon: Icon(_aiOpen ? LinearIcons.close : LinearIcons.ai),
-            onPressed: () => setState(() => _aiOpen = !_aiOpen),
-          ),
-          IconButton(
-            tooltip: '帮助中心',
-            icon: const Icon(LinearIcons.info),
-            onPressed: () => unawaited(showHelpCenter(context)),
-          ),
-          IconButton(
-            tooltip: '设置',
-            icon: const Icon(LinearIcons.settings),
-            onPressed: () => context.push(WbRoutes.settingsPath),
-          ),
-          const SizedBox(width: 8),
+          Expanded(child: _buildBody(topToolbar)),
         ],
       ),
-      body: Row(
-        children: <Widget>[
-          SizedBox(width: 240, child: Sidebar(canvasController: _canvas)),
-          const VerticalDivider(width: 1),
-          Expanded(
-            child: LayoutBuilder(
-              builder: (BuildContext context, BoxConstraints constraints) {
-                _canvasAreaSize = constraints.biggest;
-                final Offset radialOffset = _clampRadialOffset(
-                  _radialOffset,
-                  constraints.biggest,
-                );
-                return Stack(
-                  children: <Widget>[
-                    Positioned.fill(
-                      child: Listener(
-                        onPointerDown: _handleCanvasPointerDown,
-                        onPointerMove: _handleCanvasPointerMove,
-                        onPointerUp: (PointerUpEvent _) => _cancelLongPress(),
-                        onPointerCancel: (PointerCancelEvent _) =>
-                            _cancelLongPress(),
-                        child: CanvasView(
-                          controller: _canvas,
-                          showToolPalette: topToolbar,
-                          onQuickCreate: (WbQuickCreateKind kind) =>
-                              unawaited(_createProfessionalElement(kind)),
-                        ),
-                      ),
-                    ),
-                    Positioned(
-                      left: 0,
-                      right: 0,
-                      bottom: 16,
-                      child: Center(
-                        child: ListenableBuilder(
-                          listenable: _canvas,
-                          builder: (BuildContext context, Widget? child) {
-                            return FloatingToolbar(
-                              // 受控高亮：与画布工具同步（含创建完成 / 圆盘切换
-                              // 回选择等程序化切换）。
-                              activeTool: _canvas.tool.id,
-                              onToolChanged: _applyRadialTool,
-                              onCommand: _handleToolbarCommand,
-                              onUndo: _canvas.undo,
-                              onRedo: _canvas.redo,
-                              penColor: Color(_canvas.penColor),
-                              onPenColorChanged: (Color color) =>
-                                  _canvas.setPenColor(color.toARGB32()),
-                            );
-                          },
-                        ),
-                      ),
-                    ),
-                    if (!topToolbar)
-                      Positioned(
-                        left: constraints.maxWidth -
-                            _radialRightInset -
-                            _radialFrameExtent +
-                            radialOffset.dx,
-                        top: constraints.maxHeight -
-                            _radialBottomInset -
-                            _radialFrameExtent +
-                            radialOffset.dy,
-                        child: RadialToolbar(
-                          onToolSelected: _applyRadialTool,
-                          onAction: _handleRadialAction,
-                          onMoved: _onRadialMoved,
-                        ),
-                      ),
-                    Positioned(
-                      left: 16,
-                      bottom: 16,
-                      child: WbQuickCreateLauncher(
-                        alignment: Alignment.bottomLeft,
-                        margin: EdgeInsets.zero,
-                        onCreate: (WbQuickCreateKind kind) =>
+    );
+  }
+
+  Widget _action(String tooltip, IconData icon, VoidCallback onPressed) {
+    return Tooltip(
+      message: tooltip,
+      child: MiuixIconButton(
+        onPressed: onPressed,
+        child: MiuixIcon(icon: icon),
+      ),
+    );
+  }
+
+  Widget _buildTopBar(WbThemeColors colors) {
+    return Consumer<WbBoardState>(
+      builder: (BuildContext context, WbBoardState state, Widget? child) {
+        // 未保存脏标记（文件服务未挂载时不显示）。
+        final bool dirty =
+            context.watch<WbBoardFileService?>()?.hasUnsavedChanges == true;
+        return MiuixSmallTopAppBar(
+          title: '${state.board?.name ?? '加载中…'}${dirty ? ' •' : ''}',
+          subtitle: state.isDemoMode ? '演示模式 · 核心引擎未加载' : '',
+          color: colors.surface,
+          // 右侧 7 个操作与标题同层叠放，留白避免长名称压住按钮。
+          titlePadding: 340,
+          navigationIcon: _action(
+            '返回列表',
+            LinearIcons.back,
+            () => unawaited(_leave()),
+          ),
+          actions: <Widget>[
+            _action(
+              '保存白板（Ctrl+S）',
+              LinearIcons.save,
+              () => unawaited(_saveBoard()),
+            ),
+            _action(
+              '打开本地白板',
+              LinearIcons.folder,
+              () => unawaited(_openLocalBoard()),
+            ),
+            const _SyncStatusChip(),
+            _action(
+              '显示桌面',
+              LinearIcons.fitScreen,
+              () => unawaited(_annotation.enter()),
+            ),
+            _action(
+              _aiOpen ? '收起 AI 面板' : '展开 AI 面板',
+              _aiOpen ? LinearIcons.close : LinearIcons.ai,
+              () => setState(() => _aiOpen = !_aiOpen),
+            ),
+            _action(
+              '帮助中心',
+              LinearIcons.info,
+              () => unawaited(showHelpCenter(context)),
+            ),
+            _action(
+              '设置',
+              LinearIcons.settings,
+              () => context.push(WbRoutes.settingsPath),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildBody(bool topToolbar) {
+    return Row(
+      children: <Widget>[
+        SizedBox(width: 240, child: Sidebar(canvasController: _canvas)),
+        const VerticalDivider(width: 1),
+        Expanded(
+          child: LayoutBuilder(
+            builder: (BuildContext context, BoxConstraints constraints) {
+              _canvasAreaSize = constraints.biggest;
+              final Offset radialOffset = _clampRadialOffset(
+                _radialOffset,
+                constraints.biggest,
+              );
+              return Stack(
+                children: <Widget>[
+                  Positioned.fill(
+                    child: Listener(
+                      onPointerDown: _handleCanvasPointerDown,
+                      onPointerMove: _handleCanvasPointerMove,
+                      onPointerUp: (PointerUpEvent _) => _cancelLongPress(),
+                      onPointerCancel: (PointerCancelEvent _) =>
+                          _cancelLongPress(),
+                      child: CanvasView(
+                        controller: _canvas,
+                        showToolPalette: topToolbar,
+                        onQuickCreate: (WbQuickCreateKind kind) =>
                             unawaited(_createProfessionalElement(kind)),
                       ),
                     ),
-                  ],
-                );
-              },
-            ),
+                  ),
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    bottom: 16,
+                    child: Center(
+                      child: ListenableBuilder(
+                        listenable: _canvas,
+                        builder: (BuildContext context, Widget? child) {
+                          return FloatingToolbar(
+                            // 受控高亮：与画布工具同步（含创建完成 / 圆盘切换
+                            // 回选择等程序化切换）。
+                            activeTool: _canvas.tool.id,
+                            onToolChanged: _applyRadialTool,
+                            onCommand: _handleToolbarCommand,
+                            onUndo: _canvas.undo,
+                            onRedo: _canvas.redo,
+                            penColor: Color(
+                              _canvas.tool == WbCanvasTool.highlighter
+                                  ? _canvas.highlightColor
+                                  : _canvas.penColor,
+                            ),
+                            penColorLabel:
+                                _canvas.tool == WbCanvasTool.highlighter
+                                    ? '荧光笔颜色'
+                                    : '画笔颜色',
+                            penStyle: _canvas.penStyle,
+                            onPenStyleChanged: _canvas.setPenStyle,
+                            onPenColorChanged: (Color color) {
+                              if (_canvas.tool == WbCanvasTool.highlighter) {
+                                _canvas.setHighlightColor(color.toARGB32());
+                              } else {
+                                _canvas.setPenColor(color.toARGB32());
+                              }
+                            },
+                          );
+                        },
+                      ),
+                    ),
+                  ),
+                  if (!topToolbar)
+                    Positioned(
+                      left: constraints.maxWidth -
+                          _radialRightInset -
+                          _radialFrameExtent +
+                          radialOffset.dx,
+                      top: constraints.maxHeight -
+                          _radialBottomInset -
+                          _radialFrameExtent +
+                          radialOffset.dy,
+                      child: RadialToolbar(
+                        onToolSelected: _applyRadialTool,
+                        onAction: _handleRadialAction,
+                        onMoved: _onRadialMoved,
+                      ),
+                    ),
+                  Positioned(
+                    left: 16,
+                    bottom: 16,
+                    child: WbQuickCreateLauncher(
+                      alignment: Alignment.bottomLeft,
+                      margin: EdgeInsets.zero,
+                      onCreate: (WbQuickCreateKind kind) =>
+                          unawaited(_createProfessionalElement(kind)),
+                    ),
+                  ),
+                ],
+              );
+            },
           ),
-          if (_aiOpen) ...<Widget>[
-            const VerticalDivider(width: 1),
-            const SizedBox(width: 320, child: AiPanel()),
-          ],
+        ),
+        if (_aiOpen) ...<Widget>[
+          const VerticalDivider(width: 1),
+          const SizedBox(width: 320, child: AiPanel()),
         ],
-      ),
+      ],
     );
   }
 }
@@ -921,22 +938,33 @@ class _SyncStatusChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final WbSyncService sync = context.watch<WbSyncService>();
-    final WbThemeColors colors = context.wbColors;
     final bool online = sync.isOnline;
+    final MiuixThemeData theme = MiuixTheme.of(context);
+    final Color muted = theme.colors.onSurfaceVariantSummary;
     return Tooltip(
       message: sync.serverUrl.isEmpty ? '未配置协作服务地址' : sync.serverUrl,
-      child: Chip(
-        avatar: Icon(
-          online ? LinearIcons.cloud : LinearIcons.offline,
-          size: 16,
+      child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: ShapeDecoration(
+          color: theme.colors.surfaceContainer,
+          shape: const MiuixSquircleBorder(cornerRadius: 12),
         ),
-        label: Text(sync.status.label),
-        labelStyle: Theme.of(context)
-            .textTheme
-            .bodySmall
-            ?.copyWith(color: colors.icon),
-        side: BorderSide(color: colors.border),
-        backgroundColor: colors.surface,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            MiuixIcon(
+              icon: online ? LinearIcons.cloud : LinearIcons.offline,
+              size: 16,
+              tint: muted,
+            ),
+            const SizedBox(width: 6),
+            MiuixText(
+              sync.status.label,
+              style: theme.textStyles.footnote1.copyWith(color: muted),
+            ),
+          ],
+        ),
       ),
     );
   }

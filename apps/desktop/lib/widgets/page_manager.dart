@@ -25,6 +25,7 @@ import 'package:whiteboard_windows/whiteboard_windows.dart';
 import '../services/ffi_service.dart';
 import '../state/page_state.dart';
 import 'canvas/background_painter.dart';
+import 'miuix_dialog.dart';
 import 'settings/background_picker.dart';
 
 /// 背景 JSON 浅比较（值为原始类型的扁平对象，无需深比较）。
@@ -378,7 +379,7 @@ class PageManager extends StatefulWidget {
     WbPage page,
   ) async {
     final WbPageState state = context.read<WbPageState>();
-    final String? name = await showDialog<String>(
+    final String? name = await showWbMiuixDialog<String>(
       context: context,
       builder: (BuildContext dialogContext) =>
           _PageRenameDialog(initialName: page.name),
@@ -419,22 +420,27 @@ class _PageRenameDialogState extends State<_PageRenameDialog> {
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text('重命名页面'),
-      content: TextField(
-        controller: _controller,
-        autofocus: true,
-        decoration: const InputDecoration(labelText: '页面名称'),
-        onSubmitted: (String value) => Navigator.of(context).pop(value.trim()),
-      ),
-      actions: <Widget>[
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('取消'),
+    return WbMiuixDialog(
+      title: '重命名页面',
+      width: 320,
+      content: Builder(
+        builder: (BuildContext context) => TextField(
+          controller: _controller,
+          autofocus: true,
+          decoration: wbMiuixFieldDecoration(context, hint: '页面名称'),
+          onSubmitted: (String value) =>
+              Navigator.of(context).pop(value.trim()),
         ),
-        FilledButton(
+      ),
+      actions: <WbDialogAction>[
+        WbDialogAction(
+          label: '取消',
+          onPressed: () => Navigator.of(context).pop(),
+        ),
+        WbDialogAction(
+          label: '确定',
+          primary: true,
           onPressed: () => Navigator.of(context).pop(_controller.text.trim()),
-          child: const Text('确定'),
         ),
       ],
     );

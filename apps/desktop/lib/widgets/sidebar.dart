@@ -28,6 +28,7 @@ import '../state/board_state.dart';
 import '../state/page_state.dart';
 import 'canvas/canvas_controller.dart';
 import 'layers_panel.dart';
+import 'miuix_dialog.dart';
 import 'page_manager.dart';
 
 /// 左侧栏。
@@ -200,7 +201,7 @@ class _SidebarState extends State<Sidebar> {
     if (current == null) {
       return;
     }
-    final String? name = await showDialog<String>(
+    final String? name = await showWbMiuixDialog<String>(
       context: context,
       builder: (BuildContext dialogContext) =>
           _BoardRenameDialog(initialName: current.name),
@@ -744,24 +745,29 @@ class _BoardRenameDialogState extends State<_BoardRenameDialog> {
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text('重命名白板'),
-      content: TextField(
-        key: const ValueKey<String>('sidebar-board-rename-field'),
-        controller: _controller,
-        autofocus: true,
-        decoration: const InputDecoration(labelText: '白板名称'),
-        onSubmitted: (String value) => Navigator.of(context).pop(value.trim()),
-      ),
-      actions: <Widget>[
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('取消'),
+    return WbMiuixDialog(
+      title: '重命名白板',
+      width: 320,
+      content: Builder(
+        builder: (BuildContext context) => TextField(
+          key: const ValueKey<String>('sidebar-board-rename-field'),
+          controller: _controller,
+          autofocus: true,
+          decoration: wbMiuixFieldDecoration(context, hint: '白板名称'),
+          onSubmitted: (String value) =>
+              Navigator.of(context).pop(value.trim()),
         ),
-        FilledButton(
+      ),
+      actions: <WbDialogAction>[
+        WbDialogAction(
+          label: '取消',
+          onPressed: () => Navigator.of(context).pop(),
+        ),
+        WbDialogAction(
           key: const ValueKey<String>('sidebar-board-rename-ok'),
+          label: '确定',
+          primary: true,
           onPressed: () => Navigator.of(context).pop(_controller.text.trim()),
-          child: const Text('确定'),
         ),
       ],
     );

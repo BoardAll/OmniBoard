@@ -5,7 +5,8 @@
 library;
 
 import 'package:flutter/material.dart';
-import 'package:whiteboard_theme/theme.dart';
+
+import '../miuix_dialog.dart';
 
 /// 显示元素尺寸设置对话框；确认返回 `(宽, 高)`，取消返回 null。
 ///
@@ -15,7 +16,7 @@ Future<(double, double)?> showElementSizeDialog(
   required double width,
   required double height,
 }) {
-  return showDialog<(double, double)>(
+  return showWbMiuixDialog<(double, double)>(
     context: context,
     builder: (BuildContext dialogContext) =>
         _ElementSizeDialog(width: width, height: height),
@@ -83,13 +84,12 @@ class _ElementSizeDialogState extends State<_ElementSizeDialog> {
 
   @override
   Widget build(BuildContext context) {
-    final WbThemeColors colors = context.wbColors;
-    return AlertDialog(
+    return WbMiuixDialog(
       key: const ValueKey<String>('wb-size-dialog'),
-      title: const Text('尺寸设置'),
-      content: SizedBox(
-        width: 320,
-        child: Row(
+      title: '尺寸设置',
+      width: 320,
+      content: Builder(
+        builder: (BuildContext context) => Row(
           children: <Widget>[
             Expanded(
               child: TextField(
@@ -98,19 +98,19 @@ class _ElementSizeDialogState extends State<_ElementSizeDialog> {
                 autofocus: true,
                 keyboardType:
                     const TextInputType.numberWithOptions(decimal: true),
-                decoration: const InputDecoration(labelText: '宽'),
+                decoration: wbMiuixFieldDecoration(context, label: '宽'),
                 onChanged: (_) => setState(() {}),
                 onSubmitted: (_) => _confirm(),
               ),
             ),
-            const SizedBox(width: 16),
+            const SizedBox(width: 12),
             Expanded(
               child: TextField(
                 key: const ValueKey<String>('wb-size-height-field'),
                 controller: _heightController,
                 keyboardType:
                     const TextInputType.numberWithOptions(decimal: true),
-                decoration: const InputDecoration(labelText: '高'),
+                decoration: wbMiuixFieldDecoration(context, label: '高'),
                 onChanged: (_) => setState(() {}),
                 onSubmitted: (_) => _confirm(),
               ),
@@ -118,17 +118,17 @@ class _ElementSizeDialogState extends State<_ElementSizeDialog> {
           ],
         ),
       ),
-      actions: <Widget>[
-        TextButton(
+      actions: <WbDialogAction>[
+        WbDialogAction(
           key: const ValueKey<String>('wb-size-cancel'),
+          label: '取消',
           onPressed: () => Navigator.of(context).pop(),
-          child: const Text('取消'),
         ),
-        FilledButton(
+        WbDialogAction(
           key: const ValueKey<String>('wb-size-confirm'),
-          style: FilledButton.styleFrom(backgroundColor: colors.primary),
+          label: '确定',
+          primary: true,
           onPressed: _valid ? _confirm : null,
-          child: const Text('确定'),
         ),
       ],
     );

@@ -28,6 +28,7 @@ import 'package:whiteboard_theme/theme.dart';
 import '../state/board_state.dart';
 import '../state/selection_state.dart';
 import 'canvas/canvas_capture.dart';
+import 'canvas/stroke_style.dart';
 import 'canvas/screen_sampler.dart';
 import 'toolbar/color_picker_popover.dart';
 import 'toolbar/color_wheel.dart';
@@ -53,6 +54,9 @@ class FloatingToolbar extends StatefulWidget {
     this.onPendingStyleChanged,
     this.penColor,
     this.onPenColorChanged,
+    this.penColorLabel = '画笔颜色',
+    this.penStyle,
+    this.onPenStyleChanged,
   });
 
   /// 初始高亮工具（未受控模式下使用）。
@@ -91,6 +95,15 @@ class FloatingToolbar extends StatefulWidget {
 
   /// 画笔颜色变更。为 null 时不显示取色按钮（测试与未接线场景）。
   final ValueChanged<Color>? onPenColorChanged;
+
+  /// 取色按钮提示与对话框标题（如「荧光笔颜色」）。
+  final String penColorLabel;
+
+  /// 当前画笔笔触。与 [onPenStyleChanged] 一起提供、且当前工具为画笔时显示笔触条。
+  final WbPenStyle? penStyle;
+
+  /// 画笔笔触变更。
+  final ValueChanged<WbPenStyle>? onPenStyleChanged;
 
   @override
   State<FloatingToolbar> createState() => _FloatingToolbarState();
@@ -174,6 +187,26 @@ class _FloatingToolbarState extends State<FloatingToolbar> {
           )
         : _buildMainContent(context);
 
+    final bool showStyles = !contextMode &&
+        _resolvedActive == WbToolbarToolIds.pen &&
+        widget.penStyle != null &&
+        widget.onPenStyleChanged != null;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        if (showStyles) ...<Widget>[
+          _PenStyleBar(
+            style: widget.penStyle!,
+            onChanged: widget.onPenStyleChanged!,
+          ),
+          const SizedBox(height: 8),
+        ],
+        _toolbarShell(colors, content, contextMode),
+      ],
+    );
+  }
+
+  Widget _toolbarShell(WbThemeColors colors, Widget content, bool contextMode) {
     return Container(
       key: const ValueKey<String>('wb-floating-toolbar'),
       height: WbToolbarMetrics.barHeight,
@@ -226,6 +259,7 @@ class _FloatingToolbarState extends State<FloatingToolbar> {
           if (showPenColor)
             _PenColorButton(
               color: widget.penColor ?? const Color(0xFF1F2933),
+              label: widget.penColorLabel,
               onPick: widget.onPenColorChanged!,
             ),
           _fixedButton(
@@ -323,11 +357,72 @@ class _FloatingToolbarState extends State<FloatingToolbar> {
   }
 }
 
+/// 画笔笔触切换条：画笔 / 铅笔 / 粉笔 / 圆珠笔 / 刷子。
+class _PenStyleBar extends StatelessWidget {
+  const _PenStyleBar({required this.style, required this.onChanged});
+
+  final WbPenStyle style;
+  final ValueChanged<WbPenStyle> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final WbThemeColors colors = context.wbColors;
+    return Container(
+      key: const ValueKey<String>('wb-pen-style-bar'),
+      height: 36,
+      padding: const EdgeInsets.symmetric(horizontal: 6),
+      decoration: wbToolbarSurfaceDecoration(colors),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          for (final WbPenStyle item in WbPenStyle.values)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 2),
+              child: Tooltip(
+                message: item.label,
+                child: InkWell(
+                  key: ValueKey<String>('wb-pen-style-${item.id}'),
+                  borderRadius: BorderRadius.circular(8),
+                  onTap: () => onChanged(item),
+                  child: Container(
+                    height: 26,
+                    padding: const EdgeInsets.symmetric(horizontal: 10),
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: item == style
+                          ? colors.primary.withValues(alpha: 0.14)
+                          : const Color(0x00000000),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      item.label,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: item == style
+                                ? colors.primary
+                                : colors.toolbarIcon,
+                            fontWeight: item == style ? FontWeight.w600 : null,
+                          ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
 /// 底部工具栏上的画笔色点：点击打开「预设 + Miuix 精细调色」融合对话框。
 class _PenColorButton extends StatelessWidget {
-  const _PenColorButton({required this.color, required this.onPick});
+  const _PenColorButton({
+    required this.color,
+    required this.label,
+    required this.onPick,
+  });
 
   final Color color;
+  final String label;
   final ValueChanged<Color> onPick;
 
   Future<void> _open(BuildContext context) async {
@@ -336,7 +431,8 @@ class _PenColorButton extends StatelessWidget {
       final _PenColorResult? result = await showDialog<_PenColorResult>(
         context: context,
         barrierColor: const Color(0x00000000),
-        builder: (BuildContext context) => _PenColorDialog(initial: current),
+        builder: (BuildContext context) =>
+            _PenColorDialog(initial: current, title: label),
       );
       if (!context.mounted || result == null) {
         return;
@@ -390,7 +486,7 @@ class _PenColorButton extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 4),
       child: Tooltip(
-        message: '画笔颜色',
+        message: label,
         child: InkWell(
           key: const ValueKey<String>('wb-toolbar-pen-color'),
           customBorder: const CircleBorder(),
@@ -508,14 +604,17 @@ class _PenColorValueBoxState extends State<_PenColorValueBox> {
   }
 
   String _hexText(Color color) {
-    final String rgb =
-        (color.toARGB32() & 0xFFFFFF).toRadixString(16).padLeft(6, '0').toUpperCase();
+    final String rgb = (color.toARGB32() & 0xFFFFFF)
+        .toRadixString(16)
+        .padLeft(6, '0')
+        .toUpperCase();
     return '#$rgb';
   }
 
   int _alphaByte() => (widget.color.a * 255).round().clamp(0, 255);
 
-  void _set(TextEditingController controller, FocusNode focus, int value, bool force) {
+  void _set(TextEditingController controller, FocusNode focus, int value,
+      bool force) {
     if (!force && focus.hasFocus) {
       return;
     }
@@ -639,7 +738,8 @@ class _PenColorValueBoxState extends State<_PenColorValueBox> {
                       LengthLimitingTextInputFormatter(7),
                     ],
                     style: _valueStyle(theme),
-                    decoration: _fieldDecoration(fill: fieldFill, hint: '#RRGGBB'),
+                    decoration:
+                        _fieldDecoration(fill: fieldFill, hint: '#RRGGBB'),
                     onChanged: (_) => _commitHex(),
                     onSubmitted: (_) => _commitHex(),
                   ),
@@ -666,21 +766,27 @@ class _PenColorValueBoxState extends State<_PenColorValueBox> {
           const SizedBox(height: 12),
           Row(
             children: <Widget>[
-              _channelCell(theme, muted, fieldFill, 'R', _red, _redFocus, 'wb-pen-rgb-r', _commitRgb),
+              _channelCell(theme, muted, fieldFill, 'R', _red, _redFocus,
+                  'wb-pen-rgb-r', _commitRgb),
               const SizedBox(width: 8),
-              _channelCell(theme, muted, fieldFill, 'G', _green, _greenFocus, 'wb-pen-rgb-g', _commitRgb),
+              _channelCell(theme, muted, fieldFill, 'G', _green, _greenFocus,
+                  'wb-pen-rgb-g', _commitRgb),
               const SizedBox(width: 8),
-              _channelCell(theme, muted, fieldFill, 'B', _blue, _blueFocus, 'wb-pen-rgb-b', _commitRgb),
+              _channelCell(theme, muted, fieldFill, 'B', _blue, _blueFocus,
+                  'wb-pen-rgb-b', _commitRgb),
             ],
           ),
           const SizedBox(height: 8),
           Row(
             children: <Widget>[
-              _channelCell(theme, muted, fieldFill, 'H', _hue, _hueFocus, 'wb-pen-hsv-h', _commitHsv),
+              _channelCell(theme, muted, fieldFill, 'H', _hue, _hueFocus,
+                  'wb-pen-hsv-h', _commitHsv),
               const SizedBox(width: 8),
-              _channelCell(theme, muted, fieldFill, 'S', _saturation, _saturationFocus, 'wb-pen-hsv-s', _commitHsv),
+              _channelCell(theme, muted, fieldFill, 'S', _saturation,
+                  _saturationFocus, 'wb-pen-hsv-s', _commitHsv),
               const SizedBox(width: 8),
-              _channelCell(theme, muted, fieldFill, 'V', _value, _valueFocus, 'wb-pen-hsv-v', _commitHsv),
+              _channelCell(theme, muted, fieldFill, 'V', _value, _valueFocus,
+                  'wb-pen-hsv-v', _commitHsv),
             ],
           ),
         ],
@@ -844,7 +950,8 @@ class _CanvasEyedropOverlayState extends State<_CanvasEyedropOverlay> {
     }
     _px = cursor.x;
     _py = cursor.y;
-    final List<Color>? cells = sampler.patch(cursor.x, cursor.y, radius: _radius);
+    final List<Color>? cells =
+        sampler.patch(cursor.x, cursor.y, radius: _radius);
     if (cells == null) {
       return;
     }
@@ -886,7 +993,8 @@ class _CanvasEyedropOverlayState extends State<_CanvasEyedropOverlay> {
 
   @override
   Widget build(BuildContext context) {
-    final MiuixThemeData theme = MiuixThemeData.of(Theme.of(context).brightness);
+    final MiuixThemeData theme =
+        MiuixThemeData.of(Theme.of(context).brightness);
     final Size screen = MediaQuery.sizeOf(context);
     final bool screenPick = _sampler != null;
     final bool follow = _inside && _local != null;
@@ -942,7 +1050,8 @@ class _CanvasEyedropOverlayState extends State<_CanvasEyedropOverlay> {
                     child: MiuixTheme(
                       data: theme,
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 14, vertical: 8),
                         decoration: ShapeDecoration(
                           color: theme.colors.surfaceContainer,
                           shape: const MiuixSquircleBorder(cornerRadius: 12),
@@ -979,7 +1088,9 @@ class _CanvasEyedropOverlayState extends State<_CanvasEyedropOverlay> {
     const double width = 132;
     final double right = cursor.dx + 20;
     if (right + width > screen.width - 8) {
-      return (cursor.dx - width - 20).clamp(8.0, screen.width - width - 8).toDouble();
+      return (cursor.dx - width - 20)
+          .clamp(8.0, screen.width - width - 8)
+          .toDouble();
     }
     return right;
   }
@@ -995,7 +1106,8 @@ class _CanvasEyedropOverlayState extends State<_CanvasEyedropOverlay> {
 }
 
 class _Loupe extends StatelessWidget {
-  const _Loupe({required this.cells, required this.color, required this.radius});
+  const _Loupe(
+      {required this.cells, required this.color, required this.radius});
 
   final List<Color> cells;
   final Color color;
@@ -1015,7 +1127,8 @@ class _Loupe extends StatelessWidget {
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: const Color(0x33000000)),
         boxShadow: const <BoxShadow>[
-          BoxShadow(color: Color(0x33000000), blurRadius: 12, offset: Offset(0, 4)),
+          BoxShadow(
+              color: Color(0x33000000), blurRadius: 12, offset: Offset(0, 4)),
         ],
       ),
       child: Column(
@@ -1105,9 +1218,10 @@ class _CheckerPainter extends CustomPainter {
 }
 
 class _PenColorDialog extends StatelessWidget {
-  const _PenColorDialog({required this.initial});
+  const _PenColorDialog({required this.initial, required this.title});
 
   final Color initial;
+  final String title;
 
   @override
   Widget build(BuildContext context) {
@@ -1121,8 +1235,8 @@ class _PenColorDialog extends StatelessWidget {
               key: const ValueKey<String>('wb-pen-color-dialog'),
               show: true,
               renderInRootScaffold: false,
-              title: '画笔颜色',
-              maxHeight: MediaQuery.sizeOf(context).height - 48,
+              title: title,
+              maxWidth: 560 + MiuixDialogDefaults.insideMargin.width * 2,
               onDismissRequest: () => Navigator.of(context).pop(),
               content: _PenColorDialogBody(initial: initial),
             ),
@@ -1152,27 +1266,34 @@ class _PenColorDialogBodyState extends State<_PenColorDialogBody> {
 
   @override
   Widget build(BuildContext context) {
-    const EdgeInsets padding = EdgeInsets.symmetric(horizontal: 16, vertical: 6);
+    const EdgeInsets padding =
+        EdgeInsets.symmetric(horizontal: 16, vertical: 6);
     return SizedBox(
-      width: 360,
+      width: 560,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
-          _PenColorValueBox(
-            color: _selected,
-            onChanged: _select,
-            onEyedrop: () => Navigator.of(context).pop(const _PenColorResult.pick()),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              WbPenColorWheel(
+                key: const ValueKey<String>('wb-pen-color-picker'),
+                color: _selected,
+                onChanged: _select,
+              ),
+              const SizedBox(width: 20),
+              Expanded(
+                child: _PenColorValueBox(
+                  color: _selected,
+                  onChanged: _select,
+                  onEyedrop: () =>
+                      Navigator.of(context).pop(const _PenColorResult.pick()),
+                ),
+              ),
+            ],
           ),
-          const SizedBox(height: 12),
-          Center(
-            child: WbPenColorWheel(
-              key: const ValueKey<String>('wb-pen-color-picker'),
-              color: _selected,
-              onChanged: _select,
-            ),
-          ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 20),
           Row(
             children: <Widget>[
               Expanded(
@@ -1188,8 +1309,8 @@ class _PenColorDialogBodyState extends State<_PenColorDialogBody> {
               Expanded(
                 child: MiuixButton(
                   key: const ValueKey<String>('wb-pen-color-confirm'),
-                  onPressed: () =>
-                      Navigator.of(context).pop(_PenColorResult.confirm(_selected)),
+                  onPressed: () => Navigator.of(context)
+                      .pop(_PenColorResult.confirm(_selected)),
                   minHeight: 40,
                   cornerRadius: 14,
                   insideMargin: padding,

@@ -19,6 +19,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:whiteboard_theme/theme.dart';
 
+import '../miuix_dialog.dart';
 import 'color_picker_popover.dart';
 import 'toolbar_config.dart';
 import 'toolbar_item.dart';
@@ -175,29 +176,26 @@ class _WbContextToolbarState extends State<WbContextToolbar> {
 
   /// 二次确认（文档 §3.4：删除单元素 = Confirm）。
   Future<bool> _confirmItem(WbContextItem item) async {
-    final bool? ok = await showDialog<bool>(
+    final bool? ok = await showWbMiuixDialog<bool>(
       context: context,
       builder: (BuildContext dialogContext) {
-        final WbThemeColors colors = dialogContext.wbColors;
-        return AlertDialog(
+        return WbMiuixDialog(
           key: const ValueKey<String>('wb-delete-confirm'),
-          backgroundColor: colors.elevated,
-          title: Text('删除${widget.target.type.label}？'),
-          content: Text(
-            widget.target.count > 1
-                ? '将删除选中的 ${widget.target.count} 个元素，可通过撤销恢复。'
-                : '将删除选中的元素，可通过撤销恢复。',
-          ),
-          actions: <Widget>[
-            TextButton(
+          title: '删除${widget.target.type.label}？',
+          summary: widget.target.count > 1
+              ? '将删除选中的 ${widget.target.count} 个元素，可通过撤销恢复。'
+              : '将删除选中的元素，可通过撤销恢复。',
+          actions: <WbDialogAction>[
+            WbDialogAction(
               key: const ValueKey<String>('wb-delete-confirm-cancel'),
+              label: '取消',
               onPressed: () => Navigator.of(dialogContext).pop(false),
-              child: const Text('取消'),
             ),
-            FilledButton(
+            WbDialogAction(
               key: const ValueKey<String>('wb-delete-confirm-ok'),
+              label: '删除',
+              primary: true,
               onPressed: () => Navigator.of(dialogContext).pop(true),
-              child: const Text('删除'),
             ),
           ],
         );

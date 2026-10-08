@@ -211,6 +211,7 @@ class WbCanvasElement {
     this.color = 0xFF3370FF,
     this.strokeWidth = 2,
     this.shapeKind = WbShapeKindId.rect,
+    this.penStyle = 'pen',
     this.points = const <Offset>[],
     this.fontSize = 0,
     this.textAlign = WbTextAlignId.left,
@@ -252,6 +253,9 @@ class WbCanvasElement {
 
   /// 形状子类型 id，见 [WbShapeKindId]。
   final String shapeKind;
+
+  /// 笔触 id，见 [WbPenStyle]（仅 [WbElementKind.drawing]）。
+  final String penStyle;
 
   /// 笔迹采样点（世界坐标，仅 [WbElementKind.drawing]）。
   final List<Offset> points;
@@ -301,7 +305,8 @@ class WbCanvasElement {
   Rect get bounds => Rect.fromLTWH(x, y, width, height);
 
   /// 是否文本类元素（可双击进入编辑）。
-  bool get isTextual => type == WbElementKind.note || type == WbElementKind.text;
+  bool get isTextual =>
+      type == WbElementKind.note || type == WbElementKind.text;
 
   /// 中心点（世界坐标）。
   Offset get center => Offset(x + width / 2, y + height / 2);
@@ -319,6 +324,7 @@ class WbCanvasElement {
     int? color,
     double? strokeWidth,
     String? shapeKind,
+    String? penStyle,
     List<Offset>? points,
     double? fontSize,
     String? textAlign,
@@ -339,6 +345,7 @@ class WbCanvasElement {
       color: color ?? this.color,
       strokeWidth: strokeWidth ?? this.strokeWidth,
       shapeKind: shapeKind ?? this.shapeKind,
+      penStyle: penStyle ?? this.penStyle,
       points: points ?? this.points,
       fontSize: fontSize ?? this.fontSize,
       textAlign: textAlign ?? this.textAlign,
@@ -361,6 +368,7 @@ class WbCanvasElement {
       'color': WbColorUtils.toHex(Color(color), withAlpha: true),
       'strokeWidth': strokeWidth,
       'shapeKind': shapeKind,
+      'penStyle': penStyle,
       'fontSize': fontSize,
       'textAlign': textAlign,
       'name': name,
@@ -418,6 +426,7 @@ class WbCanvasElement {
       shapeKind: raw['shapeKind'] is String
           ? raw['shapeKind'] as String
           : WbShapeKindId.rect,
+      penStyle: raw['penStyle'] is String ? raw['penStyle'] as String : 'pen',
       points: points,
       fontSize: rawFontSize,
       textAlign: raw['textAlign'] is String
@@ -430,12 +439,14 @@ class WbCanvasElement {
   }
 
   @override
-  String toString() => 'WbCanvasElement($id, $type, ${bounds.width}x${bounds.height})';
+  String toString() =>
+      'WbCanvasElement($id, $type, ${bounds.width}x${bounds.height})';
 }
 
 /// 画布文档：按页面 id 维护元素列表（内存权威数据，撤销快照的最小单位）。
 class WbCanvasDocument {
-  final Map<String, List<WbCanvasElement>> _pages = <String, List<WbCanvasElement>>{};
+  final Map<String, List<WbCanvasElement>> _pages =
+      <String, List<WbCanvasElement>>{};
 
   /// 页面元素视图（不可变；页面无元素返回空列表）。
   List<WbCanvasElement> elementsOf(String pageId) {
@@ -551,7 +562,8 @@ class WbCanvasTextCache {
 
   /// 失效某元素相关的全部缓存条目。
   void invalidate(String elementId) {
-    _entries.removeWhere((String key, TextPainter _) => key.startsWith('$elementId|'));
+    _entries.removeWhere(
+        (String key, TextPainter _) => key.startsWith('$elementId|'));
   }
 
   /// 清空缓存。
