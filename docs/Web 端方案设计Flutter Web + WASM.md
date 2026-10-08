@@ -959,18 +959,19 @@ Referrer-Policy: strict-origin-when-cross-origin
 ### 19.1 构建
 
 ```bash
-# 1. 构建 WASM
+# 1. 构建 WASM（仓库封装：Windows 用 tools\scripts\build_wasm.ps1 -CopyToWebAssets，
+#    等价于下述链路；preset 已内置 WB_BUILD_WASM=ON / Release）
 source emsdk_env.sh
-emcmake cmake -B build/wasm -DWB_BUILD_WASM=ON -DCMAKE_BUILD_TYPE=Release
-cmake --build build/wasm
+emcmake cmake --preset wasm
+cmake --build --preset wasm-release
 
-# 2. 复制 WASM
-cp build/wasm/wb_core.js apps/web/web/
-cp build/wasm/wb_core.wasm apps/web/web/
+# 2. 复制 WASM（链接产物落在 build/wasm/bin/）
+cp build/wasm/bin/wb_core.js apps/web/web/
+cp build/wasm/bin/wb_core.wasm apps/web/web/
 
 # 3. 构建 Flutter Web
 cd apps/web
-flutter build web --release --wasm
+flutter build web --release
 ```
 
 ### 19.2 构建产物

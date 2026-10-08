@@ -14,6 +14,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:whiteboard_canvas/canvas_view.dart';
 import 'package:whiteboard_web/app.dart';
 import 'package:whiteboard_web/routes.dart';
 import 'package:whiteboard_web/services/wb_core_service.dart';
@@ -41,16 +42,18 @@ void main() {
       // AppBar 状态 chip：不可用 → '演示画布'。
       expect(find.text('演示画布'), findsOneWidget);
       expect(
-        find.byTooltip('WASM 核心不可用（占位脚本），当前为内置演示画布'),
+        find.byTooltip('WASM 核心不可用（加载失败或资源缺失），当前为内置演示画布'),
         findsOneWidget,
       );
-      // 宽屏布局：左侧工具面板可见（降级不影响工具展示）。
-      expect(find.text('工具'), findsOneWidget);
+      // 工具栏（P3）：宽屏工具为画布顶部浮动面板（随共享画布挂载），
+      // 降级（演示画布）时无工具 UI、左侧栏不含工具分区。
+      expect(find.text('工具'), findsNothing);
     });
   });
 
   group('状态 chip 三态（注入 fake coreService）', () {
-    Future<void> pumpWithStatus(WidgetTester tester, WbCoreStatus status) async {
+    Future<void> pumpWithStatus(
+        WidgetTester tester, WbCoreStatus status) async {
       final WbCoreService service =
           WbCoreService(loader: _PinnedLoader(status));
       addTearDown(service.dispose);
@@ -72,11 +75,26 @@ void main() {
       expect(find.byKey(const Key('wb-demo-canvas')), findsOneWidget);
     });
 
-    testWidgets('ready：引擎就绪，ccall / cwrap 可用提示', (WidgetTester tester) async {
+    testWidgets('ready：引擎就绪，画布切换为共享交互画布', (WidgetTester tester) async {
+      // 宽屏才渲染画布顶部浮动工具面板（palette）。
+      tester.view.physicalSize = const Size(1400, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
       await pumpWithStatus(tester, WbCoreStatus.ready);
       expect(find.text('引擎就绪'), findsOneWidget);
       expect(find.byTooltip('WASM 核心已加载：ccall / cwrap 可用'), findsOneWidget);
       expect(find.textContaining('内置演示画布'), findsNothing);
+      // 就绪 → 挂载共享交互画布（降级演示画布让位）。
+      expect(find.byType(CanvasView), findsOneWidget);
+      expect(find.byKey(const Key('wb-demo-canvas')), findsNothing);
+      // 宽屏工具栏（P3）：画布左上角浮动工具面板
+      // （11 工具 + 撤销 / 重做 + 更多菜单）。
+      expect(
+        find.byKey(const ValueKey<String>('wb-canvas-tool-select')),
+        findsOneWidget,
+      );
+      expect(find.byKey(const Key('wb-canvas-undo')), findsOneWidget);
+      expect(find.byKey(const Key('wb-canvas-more')), findsOneWidget);
     });
 
     testWidgets('unavailable：演示画布 chip + 降级提示条', (WidgetTester tester) async {

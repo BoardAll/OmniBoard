@@ -74,7 +74,7 @@ void main() {
 
     final Map<String, dynamic> created = WbResponse.parse(
       ffi.call2(
-        ffi.bindings.wb3dCreate,
+        'wb_3d_create',
         probe.pageId,
         jsonEncode(<String, dynamic>{
           'position': <String, dynamic>{'x': 10, 'y': 20},
@@ -106,7 +106,7 @@ void main() {
 
     // wb.h 中另有一个符号 wb_3d_render（P1I2），同样可用。
     final Map<String, dynamic> rawRender = WbResponse.parse(
-      ffi.call1Int2(ffi.bindings.wb3dRender, elementId, 320, 240),
+      ffi.call1Int2('wb_3d_render', elementId, 320, 240),
     ).requireResult();
     expect(rawRender['elementId'], elementId);
     expect((rawRender['width'] as num).toInt(), 320);
@@ -117,7 +117,7 @@ void main() {
     WbElementService(ffi)
         .create(probe.pageId, sticky('ffi-render-thumb-1', 0, 0));
     ffi.call2(
-      ffi.bindings.wb3dCreate,
+      'wb_3d_create',
       probe.pageId,
       jsonEncode(<String, dynamic>{
         'position': <String, dynamic>{'x': 0, 'y': 0},

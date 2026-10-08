@@ -4,7 +4,9 @@
 ///   直接依赖画布；
 /// - [WbAiCanvasExecutor]：内置实现，把 `WbBoardTools` 清单中的工具
 ///   映射为 `WbCanvasController` 的真实编辑（入撤销栈）；
-/// - 每次执行前记录页面快照，供执行卡片「撤销」整体恢复。
+/// - 每次执行前记录页面快照，供执行卡片「撤销」整体恢复；
+/// - M3 只读收窄：注入 [WbAiCanvasExecutor.canEdit] 探针后，无编辑权限
+///   （演示中 / 未授权只读）时执行与撤销均不落地，错误经卡片展示。
 library;
 
 import 'package:flutter/painting.dart';
@@ -28,10 +30,19 @@ abstract class WbAiToolExecutor {
 /// 画布执行器：`element_create` / `element_update` / `element_move` /
 /// `element_delete`（名称对齐 [WbBoardTools]）。
 class WbAiCanvasExecutor implements WbAiToolExecutor {
-  WbAiCanvasExecutor({required this.canvas});
+  WbAiCanvasExecutor({required this.canvas, this.canEdit});
 
   /// 目标画布控制器。
   final WbCanvasController canvas;
+
+  /// 编辑权限探针（M3 只读收窄；null = 不检查）。
+  ///
+  /// 宿主注入 `() => collab.canEdit` 后，无权限时 [execute] 返回错误、
+  /// [undo] 不落地（与服务端 `effectiveCanWrite` 口径对齐）。
+  final bool Function()? canEdit;
+
+  /// 当前是否具备编辑权限（未注入探针时视为有权限）。
+  bool get _editable => canEdit?.call() ?? true;
 
   /// 每次执行前的页面快照（撤销时整体恢复；元素不可变，浅拷贝即安全）。
   final Map<String, List<WbCanvasElement>> _beforeStates =
@@ -39,6 +50,10 @@ class WbAiCanvasExecutor implements WbAiToolExecutor {
 
   @override
   Future<Map<String, dynamic>> execute(AiToolCall call) async {
+    // M3 只读收窄（2026-10 默认无权限）：无编辑权限时拒绝落地（AI 面板卡片展示错误）。
+    if (!_editable) {
+      return _error('当前无编辑权限（可由主持人授权）');
+    }
     // 先留档再执行，任何分支都可用 undo 整体恢复。
     _beforeStates[call.id] = canvas.pageSnapshot();
     switch (call.name) {
@@ -58,6 +73,10 @@ class WbAiCanvasExecutor implements WbAiToolExecutor {
 
   @override
   void undo(AiToolCall call) {
+    // M3 只读收窄：无编辑权限时撤销同样不落地（恢复元素同属画布编辑）。
+    if (!_editable) {
+      return;
+    }
     final List<WbCanvasElement>? before = _beforeStates.remove(call.id);
     if (before == null) {
       return;

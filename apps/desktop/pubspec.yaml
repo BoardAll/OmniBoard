@@ -20,6 +20,8 @@ dependencies:
     path: ../../packages/icons
   whiteboard_core:
     path: ../../packages/core_dart
+  whiteboard_canvas:
+    path: ../../packages/canvas
   whiteboard_ai:
     path: ../../packages/ai_dart
   whiteboard_api_client:

@@ -8,22 +8,25 @@
 /// ```dart
 /// final WbCoreWasm core = await WbCoreWasm.load();
 /// core.init();
-/// final int handle = core.createBoard('{"name":"board"}');
+/// final int handle = core.callU64('wb_create_board', '{"name":"board"}');
 /// ```
 library;
 
 import 'dart:js_interop';
 import 'dart:js_interop_unsafe';
 
+import 'engine.dart';
+
 /// 全局工厂：`WbCore([moduleOverrides]) => Promise<Module>`。
 @JS('WbCore')
 external JSPromise<JSObject> _wbCoreFactory([JSObject? moduleOverrides]);
 
-/// Web 端引擎封装：与 [WbCoreFfi] 契约面保持一致的最小实现。
+/// Web 端引擎封装：实现平台中立契约 [WbEngineCaller]（与桌面 `WbCoreFfi`
+/// 同构），域服务（`services/*`）在两端共用。
 ///
 /// 所有 `wb_*` 返回的 `char*` 都由引擎 malloc，读取后立即通过 `_wb_free`
 /// 释放，避免 Web 端内存泄漏。
-class WbCoreWasm {
+class WbCoreWasm implements WbEngineCaller {
   WbCoreWasm._(this._module);
 
   static WbCoreWasm? _instance;
@@ -46,37 +49,99 @@ class WbCoreWasm {
     );
   }
 
+  /// 从已加载的 Emscripten Module 创建引擎（宿主已自行完成脚本加载 /
+  /// 降级判定，如 `platform/web` 的 WbCoreLoader 先探测资源再交入）。
+  ///
+  /// [module] 为模块对象（`WbCoreLoader.module` / `WbCore()` 工厂产物）；
+  /// 参数类型声明为 [Object] 以便宿主经条件导入（分析器按桩解析）调用，
+  /// 运行时校验为 JS 对象。
+  ///
+  /// 同时缓存为全局单例（[isLoaded] / [load] 与之共享同一实例）。
+  factory WbCoreWasm.fromModule(Object module) {
+    final WbCoreWasm core = WbCoreWasm._(module as JSObject);
+    _instance = core;
+    return core;
+  }
+
   /// 是否已实例化。
   static bool get isLoaded => _instance != null;
 
   /// 底层 Emscripten Module 对象（高级用法）。
   JSObject get module => _module;
 
-  // ---- 契约面（与 WbCoreFfi 一致） -----------------------------------
+  // ---- 契约面（[WbEngineCaller]） --------------------------------------
 
-  String init() => callString('wb_init');
+  @override
+  int init([String configJson = '{}']) =>
+      callIntResult('wb_init', <Object>[configJson]);
 
-  String shutdown() => callString('wb_shutdown');
+  /// 关闭引擎（幂等；`wb_shutdown` 返回 void）。
+  @override
+  void shutdown() => callVoid('wb_shutdown');
 
+  @override
   String versionString() => callString('wb_version');
 
-  /// 创建画板，返回引擎句柄（0 表示失败）。
-  int createBoard(String boardJson) =>
-      callInt('wb_create_board', <Object>[boardJson]);
+  @override
+  String call0(String fn) => callString(fn);
 
-  void destroyBoard(int handle) =>
-      callVoid('wb_destroy_board', <Object>[handle]);
+  @override
+  String call1(String fn, String a) => callString(fn, <Object>[a]);
 
-  String boardGet(int handle) =>
-      callString('wb_board_get', <Object>[handle]);
+  @override
+  String call2(String fn, String a, String b) => callString(fn, <Object>[a, b]);
 
-  String executeCommand(int handle, String commandJson) =>
-      callString('wb_execute_command', <Object>[handle, commandJson]);
+  @override
+  String call3(String fn, String a, String b, String c) =>
+      callString(fn, <Object>[a, b, c]);
 
-  String executeTool(int handle, String toolId, String argsJson) =>
-      callString('wb_execute_tool', <Object>[handle, toolId, argsJson]);
+  @override
+  String callInt(String fn, int value) => callString(fn, <Object>[value]);
 
-  // ---- 泛型调用 -------------------------------------------------------
+  @override
+  String call1Int(String fn, String a, int value) =>
+      callString(fn, <Object>[a, value]);
+
+  @override
+  String call1Int2(String fn, String a, int x, int y) =>
+      callString(fn, <Object>[a, x, y]);
+
+  @override
+  String call1Int1(String fn, String a, int value, String b) =>
+      callString(fn, <Object>[a, value, b]);
+
+  @override
+  String call1Float2(String fn, String a, double x, double y) =>
+      callString(fn, <Object>[a, x, y]);
+
+  @override
+  String callFloat3(String fn, double x, double y, double z) =>
+      callString(fn, <Object>[x, y, z]);
+
+  @override
+  String callHandle(String fn, int handle) => callString(fn, <Object>[handle]);
+
+  @override
+  String callHandle1(String fn, int handle, String a) =>
+      callString(fn, <Object>[handle, a]);
+
+  @override
+  String callHandleInt(String fn, int handle, int value) =>
+      callString(fn, <Object>[handle, value]);
+
+  @override
+  String callHandle1Int2(String fn, int handle, String a, int x, int y) =>
+      callString(fn, <Object>[handle, a, x, y]);
+
+  /// 调用返回 `uint64_t` 的导出函数（如 `wb_create_board` 返回句柄）。
+  @override
+  int callU64(String fn, String a) => callIntResult(fn, <Object>[a]);
+
+  /// 调用 `void f(uint64_t)` 的导出函数（如 `wb_destroy_board`）。
+  @override
+  void callVoidHandle(String fn, int handle) => callVoid(fn, <Object>[handle]);
+
+  // ---- 泛型调用（底层，供高级用法） ------------------------------------
 
   /// 调用返回 `const char*`（须释放）的导出函数并取出字符串。
   String callString(String fn, [List<Object> args = const <Object>[]]) {
@@ -90,8 +155,9 @@ class WbCoreWasm {
     return text;
   }
 
-  /// 调用返回整数的导出函数。
-  int callInt(String fn, [List<Object> args = const <Object>[]]) {
+  /// 调用返回整数的导出函数（原 `callInt`，为避免与
+  /// [WbEngineCaller.callInt] 签名冲突而更名）。
+  int callIntResult(String fn, [List<Object> args = const <Object>[]]) {
     final JSAny? raw = _invoke(fn, args, 'number');
     return raw is JSNumber ? raw.toDartInt : 0;
   }

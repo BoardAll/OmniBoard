@@ -41,3 +41,4 @@ Thumbs.db
 .env
 .env.local
 local.properties
+.agent_tmp

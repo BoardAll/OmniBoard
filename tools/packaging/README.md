@@ -12,6 +12,7 @@
 | `windows/inno_setup_x86.iss` | Windows x86 安装包脚本（需先有 x86 产物） | 同上 |
 | `web/Dockerfile` | 把 `apps/web/build/web` 打进 nginx:alpine 镜像 | 未构建（无 Docker）；结构校验 PASS |
 | `web/nginx.conf` | 静态站点配置：COOP/COEP、wasm MIME、SPA、/api+/ws 反代 | 未用 nginx 加载验证；结构校验 PASS |
+| `deploy/` | Ubuntu 服务器部署套件：打包脚本 + `install.sh` + systemd/nginx 模板 + 手册（realtime 协同 + Web 静态站，直连 IP 模式） | PowerShell AST / bash 语法校验 + 打包链路实跑 PASS；未在 Ubuntu 实测 |
 
 ## Windows 安装包（Inno Setup 6）
 
@@ -95,6 +96,15 @@
 
 **未构建验证原因**：本机无 Docker；有 Docker 的环境按上述命令即可验证。
 
+## 服务器部署（Ubuntu，直连 IP）
+
+`deploy/` 提供 **realtime 协同服务 + Web 静态站**的一键部署（systemd + nginx，不用 Docker）：
+
+1. 本地打包：`tools\packaging\deploy\pack_server_deploy.ps1 -ServerAddress <服务器IP>`
+2. 上传 + 一键安装：见 `tools/packaging/deploy/README.md`（三步部署 / 验证 / 更新 / 故障排查）。
+
+与本节 Docker 方案并列：Docker 面向容器化与域名反代场景，`deploy/` 面向直连 IP 快速落地。
+
 ## 发布流程衔接（§15）
 
 发布（详见 `docs/构建打包与发布设计.md` §15 与 `.github/workflows/release.yml`）：
@@ -113,6 +123,7 @@
 | `iscc` 编译两个 `.iss` | 本机未安装 Inno Setup 6 |
 | `docker build` / `docker run` | 本机未安装 Docker |
 | nginx 实际加载 `nginx.conf`（`nginx -t`） | 本机未安装 nginx |
+| Ubuntu 服务器端到端（`deploy/install.sh`） | 无 Ubuntu 环境；已做语法/结构校验 + 打包链路实跑 |
 | x86 安装包端到端 | x86 产物默认不构建（需 32 位工具链） |
 | 真实代码签名后的安装包 | 无代码签名证书 |
 

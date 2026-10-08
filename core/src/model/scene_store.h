@@ -64,6 +64,8 @@ class SceneStore {
 
   // --- Element -------------------------------------------------------------
   ElementLocation findElement(const std::string& elementId);
+  /// Ids carry a process-wide namespace (`element-<ns>-N`), so concurrent
+  /// clients never mint colliding ids (方案 B / cross-client collision fix).
   std::string newElementId();
 
   // --- Summaries -----------------------------------------------------------

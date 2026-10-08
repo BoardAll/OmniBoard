@@ -1,0 +1,37 @@
+# ============================================================================
+# wb-realtime.service — Whiteboard 协同服务（Socket.IO）systemd 单元
+# ============================================================================
+# 由 tools/packaging/deploy/install.sh 安装到 /etc/systemd/system/，
+# 占位符在安装时被替换：
+#   __WB_USER__     运行用户（安装者）
+#   __WB_APP_DIR__  安装目录（默认 /opt/whiteboard）
+#   __WB_PORT__     监听端口（默认 8790）
+# ============================================================================
+[Unit]
+Description=Whiteboard Realtime (Socket.IO collaboration service)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=__WB_APP_DIR__/services/realtime
+
+# 端口（对齐 services/realtime 的 PORT 环境变量约定，默认 8790）
+Environment=PORT=__WB_PORT__
+
+# ⚠️ 当前客户端尚未接入登录 token（匿名回落模式）。
+#    请勿设置 NODE_ENV=production 或 WB_JWT_SECRET：缺 token 时服务会拒绝
+#    所有连接（见 services/realtime/src/token.ts「生产拒绝，不静默降级」）。
+#    等登录体系接入后再启用这两项收紧连接。
+
+# 可选：审计 JSONL 落盘（默认写 stderr，用 journalctl -u wb-realtime 查看）
+# Environment=WB_REALTIME_AUDIT_LOG=__WB_APP_DIR__/data/realtime-audit.jsonl
+
+ExecStart=/usr/bin/node dist/server.js
+
+Restart=on-failure
+RestartSec=2
+User=__WB_USER__
+
+[Install]
+WantedBy=multi-user.target

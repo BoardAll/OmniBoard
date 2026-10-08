@@ -70,7 +70,7 @@ void main() {
   void bind() {
     final WbFfiService ffi = _demoFfi();
     boardState = WbBoardState(ffi: ffi);
-    pageState = WbPageState(ffi: ffi);
+    pageState = WbPageState(ops: WbFfiPageOps(ffi));
     final WbCanvasController liveCanvas = WbCanvasController();
     canvas = liveCanvas;
     boardState.open('board-1', name: '测试白板');

@@ -116,7 +116,7 @@ class _Harness {
     }
     ai = WbAiState(aiService: aiService);
     board = WbBoardState(ffi: ffi)..open('b1', name: '测试白板');
-    pages = WbPageState(ffi: ffi)..attach(board.board!);
+    pages = WbPageState(ops: WbFfiPageOps(ffi))..attach(board.board!);
     selection = WbSelectionState();
   }
 

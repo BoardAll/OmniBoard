@@ -32,7 +32,7 @@ class WbCoreStatusChip extends StatelessWidget {
       WbCoreStatus.ready => 'WASM 核心已加载：ccall / cwrap 可用',
       WbCoreStatus.loading => '正在加载 wb_core.js / wb_core.wasm…',
       WbCoreStatus.idle => 'WASM 核心尚未加载（进入编辑页时按需加载）',
-      WbCoreStatus.unavailable => 'WASM 核心不可用（占位脚本），当前为内置演示画布',
+      WbCoreStatus.unavailable => 'WASM 核心不可用（加载失败或资源缺失），当前为内置演示画布',
     };
     return Tooltip(
       message: tooltip,

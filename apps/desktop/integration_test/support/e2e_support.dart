@@ -28,13 +28,15 @@ WbFfiService demoFfi() {
 }
 
 /// 启动完整应用（1600x1000 视口），停留在「我的白板」首页。
-Future<void> pumpApp(WidgetTester tester) async {
+///
+/// 返回 [WbThemeState]，供用例在需要时调整外观偏好（如工具栏风格切换）。
+Future<WbThemeState> pumpApp(WidgetTester tester) async {
   tester.view.physicalSize = const Size(1600, 1000);
   tester.view.devicePixelRatio = 1.0;
   addTearDown(tester.view.reset);
 
   final WbThemeState theme = WbThemeState();
-  final WbSyncService sync = WbSyncService();
+  final WbCollabService sync = WbCollabService();
   final GoRouter router = createRouter();
   addTearDown(() {
     theme.dispose();
@@ -45,18 +47,22 @@ Future<void> pumpApp(WidgetTester tester) async {
   await tester.pumpWidget(WhiteboardApp(
     ffiService: demoFfi(),
     themeState: theme,
-    syncService: sync,
+    collabService: sync,
     shortcutService: WbShortcutService(),
     router: router,
   ));
   await tester.pumpAndSettle();
+  return theme;
 }
 
 /// 启动应用并通过「新建白板」进入编辑页。
-Future<void> pumpEditor(WidgetTester tester) async {
-  await pumpApp(tester);
+///
+/// 返回 [WbThemeState]（透传 [pumpApp]）。
+Future<WbThemeState> pumpEditor(WidgetTester tester) async {
+  final WbThemeState theme = await pumpApp(tester);
   await tester.tap(find.text('新建白板'));
   await tester.pumpAndSettle();
+  return theme;
 }
 
 /// 展开快速创建入口并选择某类编辑器。

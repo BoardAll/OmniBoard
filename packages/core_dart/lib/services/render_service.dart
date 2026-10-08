@@ -1,16 +1,16 @@
+import '../engine.dart';
 import '../utils/json_codec.dart';
-import '../wb_core_ffi.dart';
 
 /// 渲染服务：显示列表 / 脏区 / 3D / 缩略图 / 缓存与性能统计（render 域）。
 class WbRenderService {
   const WbRenderService(this.ffi);
 
-  final WbCoreFfi ffi;
+  final WbEngineCaller ffi;
 
   /// 取某画板（句柄）指定图层的显示列表。
   Map<String, dynamic> displayList(int handle, [int layer = 0]) {
     final WbResponse response = WbResponse.parse(
-      ffi.callHandleInt(ffi.bindings.wbGetDisplayList, handle, layer),
+      ffi.callHandleInt('wb_get_display_list', handle, layer),
     );
     return response.requireResult();
   }
@@ -18,7 +18,7 @@ class WbRenderService {
   /// 按页面渲染显示列表。
   Map<String, dynamic> renderDisplayList(String pageId, [int layer = 0]) {
     final WbResponse response = WbResponse.parse(
-      ffi.call1Int(ffi.bindings.wbRenderDisplayList, pageId, layer),
+      ffi.call1Int('wb_render_display_list', pageId, layer),
     );
     return response.requireResult();
   }
@@ -30,7 +30,7 @@ class WbRenderService {
   ]) {
     final WbResponse response = WbResponse.parse(
       ffi.call2(
-        ffi.bindings.wbRenderDirty,
+        'wb_render_dirty',
         pageId,
         WbJsonCodec.encode(dirty),
       ),
@@ -47,7 +47,7 @@ class WbRenderService {
   ]) {
     final WbResponse response = WbResponse.parse(
       ffi.callHandle1Int2(
-        ffi.bindings.wbRender3d,
+        'wb_render_3d',
         handle,
         elementId,
         width,
@@ -64,7 +64,7 @@ class WbRenderService {
     int height = 0,
   ]) {
     final WbResponse response = WbResponse.parse(
-      ffi.call1Int2(ffi.bindings.wbRenderThumbnail, pageId, width, height),
+      ffi.call1Int2('wb_render_thumbnail', pageId, width, height),
     );
     return response.requireResult();
   }
@@ -72,21 +72,21 @@ class WbRenderService {
   /// 渲染缓存统计。
   Map<String, dynamic> cacheStats() {
     final WbResponse response =
-        WbResponse.parse(ffi.call0(ffi.bindings.wbRenderCacheStats));
+        WbResponse.parse(ffi.call0('wb_render_cache_stats'));
     return response.requireResult();
   }
 
   /// 清空渲染缓存。
   Map<String, dynamic> cacheClear() {
     final WbResponse response =
-        WbResponse.parse(ffi.call0(ffi.bindings.wbRenderCacheClear));
+        WbResponse.parse(ffi.call0('wb_render_cache_clear'));
     return response.requireResult();
   }
 
   /// 性能统计（帧时间等）。
   Map<String, dynamic> perfStats() {
     final WbResponse response =
-        WbResponse.parse(ffi.call0(ffi.bindings.wbRenderPerfStats));
+        WbResponse.parse(ffi.call0('wb_render_perf_stats'));
     return response.requireResult();
   }
 }

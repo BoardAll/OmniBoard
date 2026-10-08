@@ -35,7 +35,7 @@ param(
     [string]$OutputDir,
 
     # Also copy the artifacts into apps\web\web\ (manual opt-in; the checked-in
-    # wb_core.js there is a placeholder owned by the web task package).
+    # wb_core.js / wb_core.wasm there are real artifacts updated in place).
     [switch]$CopyToWebAssets,
 
     # Explicit cmake.exe path (default: $env:WB_CMAKE, then PATH).

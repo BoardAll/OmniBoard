@@ -192,6 +192,10 @@ class WindowPlugin {
   // 两个输出参数不变。
   FileDialogOutcome OpenImageDialog(std::string* path, std::string* error);
 
+  // 弹出模态「选择组件」文件对话框（GetOpenFileNameW，过滤 SVG / 图片）；
+  // 语义同 [OpenImageDialog]。
+  FileDialogOutcome OpenComponentDialog(std::string* path, std::string* error);
+
   // 弹出模态「打开白板」文件对话框（GetOpenFileNameW，过滤 .wbd）；
   // 语义同 [OpenImageDialog]。
   FileDialogOutcome OpenBoardDialog(std::string* path, std::string* error);

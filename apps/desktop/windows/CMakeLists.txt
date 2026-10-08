@@ -123,6 +123,9 @@ install(FILES "${AOT_LIBRARY}" DESTINATION "${INSTALL_BUNDLE_DATA_DIR}"
 #   2. <repo-root>/build/windows-x64/bin/$<CONFIG>/wb_core.dll — the default
 #      output of the `windows-x64` preset (Visual Studio multi-config
 #      layout: <binaryDir>/bin/<Config>).
+#   3. <repo-root>/build/windows-x64/bin/Release/wb_core.dll — Release
+#      fallback: the preset builds Release only, so Debug/Profile flutter
+#      builds still deploy a working DLL instead of skipping deployment.
 #
 # Why a custom target and not ...
 #   * add_custom_command(TARGET whiteboard_desktop ...): CMake requires the
@@ -143,6 +146,7 @@ add_custom_target(wb_core_dll_deploy ALL
   COMMAND "${CMAKE_COMMAND}"
           "-DWB_CORE_DLL=$ENV{WB_CORE_DLL}"
           "-DWB_CORE_DLL_DEFAULT=${CMAKE_CURRENT_SOURCE_DIR}/../../../build/windows-x64/bin/$<CONFIG>/wb_core.dll"
+          "-DWB_CORE_DLL_FALLBACK=${CMAKE_CURRENT_SOURCE_DIR}/../../../build/windows-x64/bin/Release/wb_core.dll"
           "-DWB_CORE_DLL_DEST=$<TARGET_FILE_DIR:${BINARY_NAME}>"
           -P "${CMAKE_CURRENT_SOURCE_DIR}/copy_wb_core.cmake"
   COMMENT "Deploying wb_core.dll next to ${BINARY_NAME}.exe (skipped when not built)"

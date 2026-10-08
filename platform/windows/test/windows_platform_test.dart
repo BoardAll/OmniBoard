@@ -96,6 +96,28 @@ void main() {
       expect(await plugin.openImageFile(), isNull);
     });
 
+    test('openComponentFile 返回选中路径 / 取消返回 null', () async {
+      final WindowsWindowPlugin plugin = WindowsWindowPlugin();
+
+      messenger.setMockMethodCallHandler(channel, (MethodCall call) async {
+        log.add(call);
+        if (call.method == 'dialog.openComponent') {
+          return r'C:\Assets\icon.svg';
+        }
+        return null;
+      });
+      expect(await plugin.openComponentFile(), r'C:\Assets\icon.svg');
+      expect(log.single.method, 'dialog.openComponent');
+      expect(log.single.arguments, isNull);
+
+      // 用户取消：原生命令成功返回 null。
+      messenger.setMockMethodCallHandler(channel, (MethodCall call) async {
+        log.add(call);
+        return null;
+      });
+      expect(await plugin.openComponentFile(), isNull);
+    });
+
     test('openBoardFile 返回选中路径 / 取消返回 null', () async {
       final WindowsWindowPlugin plugin = WindowsWindowPlugin();
 

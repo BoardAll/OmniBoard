@@ -1,6 +1,10 @@
 // model/scene_store.cpp — scene state implementation (task package 1.3).
 // Owns: core/src/model. See scene_store.h for the locking contract.
 
+#include <cstdint>
+#include <random>
+#include <string>
+
 #include "scene_store.h"
 
 #include "wb/platform/platform.h"
@@ -93,7 +97,26 @@ ElementLocation SceneStore::findElement(const std::string& elementId) {
 }
 
 std::string SceneStore::newElementId() {
-  return "element-" + std::to_string(++elementCounter_);
+  // Process-wide id namespace (base36, generated once per process): ids look
+  // like `element-<ns>-N`, so two concurrently running clients can never
+  // mint the same id (previously both counters started at `element-1` and
+  // collided once synced — cross-client element id collision fix / 方案 B).
+  static const std::string ns = [] {
+    static constexpr char kAlphabet[] =
+        "abcdefghijklmnopqrstuvwxyz0123456789";
+    std::random_device device;
+    std::mt19937_64 engine(
+        (static_cast<std::uint64_t>(device()) << 32) ^ device());
+    std::uniform_int_distribution<int> distribution(
+        0, static_cast<int>(sizeof(kAlphabet)) - 2);
+    std::string result;
+    result.reserve(8);
+    for (int i = 0; i < 8; ++i) {
+      result.push_back(kAlphabet[distribution(engine)]);
+    }
+    return result;
+  }();
+  return "element-" + ns + "-" + std::to_string(++elementCounter_);
 }
 
 nlohmann::json SceneStore::pageSummary(const PageRec& page) {

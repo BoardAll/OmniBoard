@@ -49,6 +49,7 @@
 ## 3. 契约与依赖
 
 - **对外契约（只读）**：`core/include/wb/wb.h`（所有导出函数签名）、`core/include/wb/base/*.h`（基础类型）、`core/tools/schema/*.json`。
+- **协同面 FFI 符号（M1 共 11 个 + M2 锁 1 个 + M3 交互 1 个，共 13 个）**：控制面 4（`wb_sync_connect`/`wb_sync_disconnect`/`wb_sync_status`/`wb_sync_set_offline`）+ 数据面薄转发 9（sync 7：`wb_sync_join`/`wb_sync_send_operation`/`wb_sync_flush`/`wb_sync_events`/`wb_sync_send_preview`/`wb_sync_lock`（M2 D2-C 锁转发，args `{action,elementId}`，异步经 `events` 的 `room.lockAcks`/`room.locks`）/`wb_sync_interactive`（M3 T3.2 交互转发，args `{action,userId?,targetUserId?}`，9 action 白名单，异步经 `events` 的 `interactiveAcks`）；crdt 2：`wb_crdt_create`/`wb_crdt_apply_local`）；均走既有域路由 + UTF-8 JSON 信封 + `wb_free` 释放，**不新增回调通道类符号**（设计文档 §8.2 勘误）。
 - **被依赖**：01←02/03/04/05/06（全部 C++ 模块）；FFI 行为被 07 `packages/core_dart`（及其上层 11 桌面应用）依赖。
 - **依赖**：third_party（nlohmann/json、spdlog、fmt、glm）。
 - **已知契约事实（回归依据）**：命令总线域名为 `command.undo`/`command.redo`；FFI 边界输入输出均为 UTF-8 JSON；对象/句柄生命周期由 `wb_free` 释放；引擎启动日志 `[wb] core initialized v1.0.0`。

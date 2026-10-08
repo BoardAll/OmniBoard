@@ -16,7 +16,7 @@ enum WbCoreStatus {
   /// 加载成功，[WbCoreLoader.call] 等代理可用。
   ready('ready', '已就绪'),
 
-  /// 不可用：非 Web 环境、`wb_core.js` 缺失（占位脚本）或加载失败。
+  /// 不可用：非 Web 环境、`wb_core.js` 缺失或加载失败。
   unavailable('unavailable', '不可用');
 
   const WbCoreStatus(this.id, this.label);

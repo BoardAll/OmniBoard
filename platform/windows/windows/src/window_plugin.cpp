@@ -375,6 +375,44 @@ FileDialogOutcome WindowPlugin::OpenImageDialog(std::string* path,
   return FileDialogOutcome::kSelected;
 }
 
+FileDialogOutcome WindowPlugin::OpenComponentDialog(std::string* path,
+                                                     std::string* error) {
+  const HWND owner = ResolveWindow();
+
+  // 路径缓冲：为长路径预留足量空间（Windows 路径上限 32767 个宽字符），
+  // 并保证以 NUL 填充（OPENFILENAMEW 要求可写缓冲）。
+  std::vector<wchar_t> file_buffer(32768, L'\0');
+  OPENFILENAMEW dialog = {};
+  dialog.lStructSize = sizeof(dialog);
+  dialog.hwndOwner = owner;
+  // 过滤器：SVG / 位图组件（与「我的组件」导入判型一致）。
+  dialog.lpstrFilter =
+      L"组件文件 (*.svg;*.png;*.jpg;*.jpeg;*.webp;*.bmp;*.gif)\0"
+      L"*.svg;*.png;*.jpg;*.jpeg;*.webp;*.bmp;*.gif\0";
+  dialog.lpstrFile = file_buffer.data();
+  dialog.nMaxFile = static_cast<DWORD>(file_buffer.size());
+  dialog.lpstrTitle = L"选择组件";
+  // 仅接受已存在文件；OFN_NOCHANGEDIR 避免对话框改动进程当前目录。
+  dialog.Flags =
+      OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_EXPLORER | OFN_NOCHANGEDIR;
+
+  if (GetOpenFileNameW(&dialog) == FALSE) {
+    const DWORD extended_error = CommDlgExtendedError();
+    if (extended_error == 0) {
+      return FileDialogOutcome::kCancelled;  // 用户取消（关闭对话框）
+    }
+    if (error != nullptr) {
+      *error =
+          "文件对话框打开失败，错误码 " + std::to_string(extended_error);
+    }
+    return FileDialogOutcome::kFailed;
+  }
+  if (path != nullptr) {
+    *path = WideToUtf8(file_buffer.data());
+  }
+  return FileDialogOutcome::kSelected;
+}
+
 FileDialogOutcome WindowPlugin::OpenBoardDialog(std::string* path,
                                                 std::string* error) {
   const HWND owner = ResolveWindow();

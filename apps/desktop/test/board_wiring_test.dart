@@ -1,5 +1,5 @@
 /// 编辑页接线冒烟（Wave 3 协调者集成）：命令面板接棒 / 透明批注入口 /
-/// 快速创建 / 长按空白画布弹临时圆盘。
+/// 快速创建 / 长按空白画布弹临时圆盘 / M2 在场层挂载冒烟。
 library;
 
 import 'package:flutter/material.dart';
@@ -16,6 +16,7 @@ import 'package:whiteboard_desktop/widgets/annotation/annotation_controller.dart
 import 'package:whiteboard_desktop/widgets/annotation/annotation_exit_dialog.dart';
 import 'package:whiteboard_desktop/widgets/annotation/annotation_overlay.dart';
 import 'package:whiteboard_desktop/widgets/annotation/annotation_toolbar.dart';
+import 'package:whiteboard_desktop/widgets/collab/remote_cursors.dart';
 import 'package:whiteboard_desktop/widgets/command_palette.dart';
 import 'package:whiteboard_desktop/widgets/context_editors/flowchart_editor.dart';
 import 'package:whiteboard_desktop/widgets/guide/help_center.dart';
@@ -34,7 +35,7 @@ Future<WbThemeState> _pumpEditor(WidgetTester tester) async {
   addTearDown(tester.view.reset);
 
   final WbThemeState theme = WbThemeState();
-  final WbSyncService sync = WbSyncService();
+  final WbCollabService sync = WbCollabService();
   addTearDown(() {
     theme.dispose();
     sync.dispose();
@@ -43,7 +44,7 @@ Future<WbThemeState> _pumpEditor(WidgetTester tester) async {
   await tester.pumpWidget(WhiteboardApp(
     ffiService: _demoFfi(),
     themeState: theme,
-    syncService: sync,
+    collabService: sync,
     shortcutService: WbShortcutService(),
   ));
   await tester.pumpAndSettle();
@@ -240,5 +241,77 @@ void main() {
     expect(find.byType(RadialToolbar), findsNothing);
     await gesture.up();
     await tester.pump();
+  });
+
+  testWidgets('协同 UI：默认本地入口（点击弹加入对话框）；参与者面板开 / 关（T1.7）',
+      (WidgetTester tester) async {
+    await _pumpEditor(tester);
+
+    // 交互改造：白板默认本地，演示模式（无引擎 → 离线）AppBar 显示
+    // 「互动白板」入口按钮，而非常驻状态 chip。
+    expect(find.byKey(const Key('wb-collab-entry')), findsOneWidget);
+    expect(find.text('互动白板'), findsOneWidget);
+    expect(find.byKey(const Key('wb-sync-status-chip')), findsNothing);
+
+    // 点击入口：弹出加入对话框（房间号输入 + 服务器地址提示）。
+    await tester.tap(find.byKey(const Key('wb-collab-entry')));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey<String>('wb-collab-join-dialog')),
+      findsOneWidget,
+    );
+    expect(find.textContaining('服务器地址：'), findsOneWidget);
+    await tester.tap(
+      find.byKey(const ValueKey<String>('wb-collab-join-cancel')),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey<String>('wb-collab-join-dialog')),
+      findsNothing,
+    );
+
+    // 参与者入口：打开 endDrawer 面板（无参与者 → 空态）。
+    await tester.tap(find.byKey(const Key('wb-participants-button')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('wb-participants-panel')), findsOneWidget);
+    expect(find.text('暂无其他参与者'), findsOneWidget);
+
+    // 「关闭」按钮收起面板。
+    await tester.tap(find.descendant(
+      of: find.byKey(const Key('wb-participants-panel')),
+      matching: find.byTooltip('关闭'),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('wb-participants-panel')), findsNothing);
+  });
+
+  testWidgets('协同 UI：编辑页挂载 M2 在场层（IgnorePointer 不拦截画布交互）',
+      (WidgetTester tester) async {
+    await _pumpEditor(tester);
+
+    final Finder overlay = find.byType(WbRemoteCursorsOverlay);
+    expect(overlay, findsOneWidget);
+    expect(
+      tester
+          .widget<IgnorePointer>(
+            find.descendant(of: overlay, matching: find.byType(IgnorePointer)),
+          )
+          .ignoring,
+      isTrue,
+      reason: '在场层不拦截指针事件',
+    );
+
+    // 覆盖层存在时长按画布仍可达（事件穿透 → 临时圆盘弹出）。
+    final TestGesture gesture =
+        await tester.startGesture(const Offset(760, 500));
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pump();
+    expect(find.byType(RadialToolbar), findsNWidgets(2));
+
+    await gesture.up();
+    await tester.pump();
+    await tester.tapAt(const Offset(760, 100));
+    await tester.pumpAndSettle();
+    expect(find.byType(RadialToolbar), findsOneWidget);
   });
 }

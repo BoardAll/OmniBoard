@@ -140,14 +140,14 @@ void main() {
     final FfiBoardHandle probe = createBoardWithPage(ffi, 'FFI 错误语义');
 
     final WbResponse badJson = WbResponse.parse(
-      ffi.callHandle1(ffi.bindings.wbExecuteCommand, probe.handle, 'not-json'),
+      ffi.callHandle1('wb_execute_command', probe.handle, 'not-json'),
     );
     expect(badJson.ok, isFalse);
     expect(badJson.code, 'InvalidArgument');
     expect(badJson.message, 'command must be an object');
 
     final WbResponse missingType = WbResponse.parse(
-      ffi.call2(ffi.bindings.wbElementCreate, probe.pageId, '{}'),
+      ffi.call2('wb_element_create', probe.pageId, '{}'),
     );
     expect(missingType.ok, isFalse);
     expect(missingType.code, 'InvalidArgument');
@@ -155,7 +155,7 @@ void main() {
 
     final WbResponse unknownDomain = WbResponse.parse(
       ffi.callHandle1(
-        ffi.bindings.wbExecuteCommand,
+        'wb_execute_command',
         probe.handle,
         '{"type":"no.such.command","params":{}}',
       ),

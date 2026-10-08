@@ -66,6 +66,22 @@ class WbCoreLoader {
     return null;
   }
 
+  /// 调用返回 `const char*`（UTF-8 字符串 / JSON）的导出函数（桩：恒返回 null）。
+  Future<String?> callString(
+    String name, [
+    List<Object?> args = const <Object?>[],
+  ]) async {
+    return null;
+  }
+
+  /// 调用返回整数的导出函数（桩：恒返回 null）。
+  Future<int?> callInt(
+    String name, [
+    List<Object?> args = const <Object?>[],
+  ]) async {
+    return null;
+  }
+
   /// `cwrap` 代理（桩：恒返回 null）。
   WbCoreCallable? cwrap(
     String name, {

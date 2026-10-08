@@ -14,7 +14,7 @@ Windows-first 的构建/打包/发布辅助脚本（PowerShell 5.1+），实现
 | `build_all.ps1` | 一键编排：C++ → Windows 应用 → Web → WASM → 校验和 | 完整 5 步运行 EXIT=0 |
 | `build_cpp.ps1` | CMake preset `windows-x64` 构建 `wb_core.dll`（可跑 ctest） | 构建 OK；`-RunTests` 199/199 通过 |
 | `build_flutter.ps1` | `flutter build windows/web --release` | 两者均构建成功 |
-| `build_wasm.ps1` | Emscripten WASM 核心（`emcmake` + `wasm` preset） | 本机无 EMSDK → 优雅跳过 EXIT=0 |
+| `build_wasm.ps1` | Emscripten WASM 核心（`emcmake` + `wasm` preset） | 真实构建验证 EXIT=0（2026-10-01，emsdk 3.1.74；`-CopyToWebAssets` 复制到 `apps\web\web\`） |
 | `sign_windows.ps1` | signtool Authenticode 签名（dist + runner 产物） | 本机无证书 → 跳过 EXIT=0 |
 | `version_sync.ps1` | 版本一致性校验/更新（根 `VERSION` 为唯一事实源） | `-Check`：20 个文件 0 不一致 |
 | `checksum.ps1` | 生成 `SHA256SUMS`（`<hash> *<name>` 格式 + 自校验） | 生成/自校验 PASS |
@@ -96,7 +96,7 @@ Flutter 构建时由 `apps/desktop/windows/CMakeLists.txt` 的
 | --- | --- |
 | `-Strict` | 无 EMSDK 时改为失败（CI 可用） |
 | `-OutputDir` | 产物收集目录（默认 `build\wasm\dist`） |
-| `-CopyToWebAssets` | 可选：拷贝到 `apps\web\web\`（占位文件由 Web 任务包维护） |
+| `-CopyToWebAssets` | 可选：拷贝到 `apps\web\web\`（真实产物直接更新宿主资产；默认关闭） |
 | `-CmakePath` | 显式 cmake.exe |
 
 无 EMSDK 时打印安装指引并 **exit 0**（优雅跳过）。启用流程：
@@ -155,7 +155,7 @@ Flutter 构建时由 `apps/desktop/windows/CMakeLists.txt` 的
 | CMake 3.20+（VS2022 generator） | build_cpp / build_wasm | 已有（`D:\Program Files\Cmake`） | build_cpp 报错提示安装或设 `WB_CMAKE` |
 | Flutter SDK | build_flutter | 已有（`E:\code\flutter-sdk`） | 报错提示设 `WB_FLUTTER` 或加入 PATH |
 | VS2022 + Windows SDK | C++ / Windows runner | 已有 | CMake 配置阶段报错 |
-| Emscripten（EMSDK） | build_wasm | **无** | 打印安装指引，exit 0（`-Strict` 时 exit 1） |
+| Emscripten（EMSDK） | build_wasm | 已有（`E:\code\emsdk`，3.1.74） | 打印安装指引，exit 0（`-Strict` 时 exit 1） |
 | signtool + 代码签名证书 | sign_windows | signtool 有 / 证书**无** | 打印配置指引，exit 0（`-Strict` 时 exit 1） |
 | Inno Setup 6（iscc） | 安装包（见 `tools/packaging`） | **无** | 不涉及本目录脚本；未编译验证 |
 | Docker | Web 镜像（见 `tools/packaging`） | **无** | 同上 |

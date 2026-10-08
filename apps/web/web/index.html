@@ -36,7 +36,8 @@
   <!--
     wb_core.js（C++ WASM 核心）不在页面加载时引入：
     WbCoreLoader 会在进入编辑页时按需注入（见《Web 端方案设计》§6.1）。
-    当前仓库内为占位脚本，真实产物由 Wave 4 的 Emscripten 构建覆盖。
+    当前仓库内已是真实 Emscripten 产物（wb_core.js + wb_core.wasm），
+    由 tools\scripts\build_wasm.ps1 -CopyToWebAssets 更新。
   -->
   <script src="flutter_bootstrap.js" async></script>
 </body>

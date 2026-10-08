@@ -107,26 +107,26 @@ void main() {
     final WbRenderService render = WbRenderService(ffi);
 
     final WbResponse unknownPage = WbResponse.parse(
-      ffi.call1(ffi.bindings.wbElementList, 'no-such-page'),
+      ffi.call1('wb_element_list', 'no-such-page'),
     );
     expect(unknownPage.ok, isFalse);
     expect(unknownPage.code, 'NotFound');
     expect(unknownPage.message, 'unknown page: no-such-page');
 
     final WbResponse unknownThumb = WbResponse.parse(
-      ffi.call1Int2(ffi.bindings.wbRenderThumbnail, 'no-such-page', 0, 0),
+      ffi.call1Int2('wb_render_thumbnail', 'no-such-page', 0, 0),
     );
     expect(unknownThumb.ok, isFalse);
     expect(unknownThumb.code, 'NotFound');
 
     final WbResponse badCommand = WbResponse.parse(
-      ffi.callHandle1(ffi.bindings.wbExecuteCommand, probe.handle, 'not-json'),
+      ffi.callHandle1('wb_execute_command', probe.handle, 'not-json'),
     );
     expect(badCommand.ok, isFalse);
     expect(badCommand.code, 'InvalidArgument');
 
     final WbResponse badElement = WbResponse.parse(
-      ffi.call2(ffi.bindings.wbElementCreate, probe.pageId, 'not-json'),
+      ffi.call2('wb_element_create', probe.pageId, 'not-json'),
     );
     expect(badElement.ok, isFalse);
     expect(badElement.code, 'InvalidArgument');

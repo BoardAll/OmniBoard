@@ -6,9 +6,9 @@
 
 ## 1. 模块职责与边界
 
-- **负责**：C++ 引擎的 Dart FFI 封装——动态库加载与 `wb.h` 100 个导出符号的绑定表、统一响应信封解析、各域服务封装（board/element/page/tool/theme/render/background/ai）、数据模型与工具（JSON/二进制编解码、句柄管理）；Web 端 WASM 入口。
+- **负责**：C++ 引擎的 Dart FFI 封装——动态库加载与 `wb.h` 109 个导出符号的绑定表、统一响应信封解析、各域服务封装（board/element/page/tool/theme/render/background/ai/sync/crdt）、数据模型与工具（JSON/二进制编解码、句柄管理）；Web 端 WASM 入口；**平台中立调用面 `WbEngineCaller`**（`engine.dart`，FFI / WASM 共用契约）与**平台中立公共入口 `wb_core_common.dart`**（不导出平台实现，跨端代码唯一依赖入口）。
 - **不负责**：C ABI 契约本体与错误语义（→ [01-core-foundation](01-core-foundation.md)）；应用状态与装配（→ [11-app-desktop](11-app-desktop.md)）；网络客户端（→ [09-dart-client](09-dart-client.md)）；Web 应用装配（→ [12-app-web](12-app-web.md)）。
-- **地位**：Flutter 侧访问引擎的唯一通道；上层不得绕过本包直接 `lookupFunction` 符号。
+- **地位**：Flutter 侧访问引擎的唯一通道；上层不得绕过本包直接 `lookupFunction` 符号。域服务一律依赖 `WbEngineCaller` 接口（构造注入），实现由宿主选择：桌面 `WbCoreFfi.load()` / Web `WbCoreWasm.load()`。
 - **注意**：`wb_core.dart`、`wb_core_ffi.dart` 为契约文件（Wave 0），既有导出名不可变更。
 
 ## 2. 功能 → 文件映射
@@ -18,7 +18,9 @@
 | 功能 | 实现文件 | 测试 |
 |---|---|---|
 | 公共入口（聚合导出 bindings/ffi/models/services/utils；WASM 入口有意不导出） | `packages/core_dart/lib/wb_core.dart` | —（纯导出面，被全包测试间接覆盖） |
-| 绑定表：100 个 `wb.h` 导出符号、13 种调用形状 Native/Dart typedef、惰性 `lookupFunction` | `packages/core_dart/lib/wb_core_bindings.dart` | `packages/core_dart/test/core_dart_test.dart` |
+| 平台中立调用面 `WbEngineCaller`（`init` / `shutdown` / `call0`…`callVoidHandle` 各调用形状与 C ABI 参数表一一对应；不引入 `dart:ffi` / `dart:js_interop`，桌面与 Web 目标可同编译） | `packages/core_dart/lib/engine.dart` | 经域服务与两端集成测试间接覆盖 |
+| 平台中立公共入口 `wb_core_common.dart`（聚合导出 engine + models + services + utils；跨端代码——共享画布包 `whiteboard_canvas`、apps/web——的唯一依赖入口） | `packages/core_dart/lib/wb_core_common.dart` | —（纯导出面） |
+| 绑定表：109 个 `wb.h` 导出符号（含 M1/M2/M3 协同面 13 个：sync 控制面 4 + 数据面 7 + crdt 2）、13 种调用形状 Native/Dart typedef、惰性 `lookupFunction` | `packages/core_dart/lib/wb_core_bindings.dart` | `packages/core_dart/test/core_dart_test.dart`（sync/crdt native 组：13 符号可解析断言） |
 | `WbCoreFfi` 绑定与加载：`loadWbCore`（overridePath → 平台默认名 `wb_core.dll`/`libwb_core.dylib`/`libwb_core.so`；库缺失时抛 `ArgumentError` 作为优雅降级入口）、`withUtf8`/`takeString` 内存约定、`call0`…`callHandle1Int2` 泛型调用 | `packages/core_dart/lib/wb_core_ffi.dart` | `packages/core_dart/test/core_dart_test.dart`（native smoke）；真实 DLL：`apps/desktop/test/integration/ffi_init_test.dart`（含"缺失动态库路径时 load 抛出 ArgumentError"用例） |
 | Web/WASM 入口：`WbCoreWasm`（Emscripten `ccall`、幂等加载、不支持类型抛 `ArgumentError`） | `packages/core_dart/lib/wb_core_wasm.dart` | —（Flutter Web 构建专用，桌面测试不加载） |
 
@@ -26,7 +28,7 @@
 
 | 功能 | 实现文件 | 测试 |
 |---|---|---|
-| JSON 编解码 + `WbResponse` 解析（`ok/result/error` 信封、非信封宽容处理、`requireResult` 抛 `WbCoreException`） | `packages/core_dart/lib/utils/json_codec.dart` | `packages/core_dart/test/core_dart_test.dart`（WbJsonCodec 组 + WbResponse 组） |
+| JSON 编解码 + `WbResponse` 解析（`ok/result/error` 信封、非信封宽容处理、`requireResult` 抛 `WbCoreException`） | `packages/core_dart/lib/utils/json_codec.dart` | `packages/core_dart/test/core_dart_test.dart`（WbJsonCodec 组 + WbResponse 组 + sync/crdt 信封用例） |
 | 二进制协议头/整帧编解码（16 字节 little-endian） | `packages/core_dart/lib/utils/binary_codec.dart` | 同上（WbBinaryCodec 组） |
 | 句柄管理（`WbHandle` / `WbHandleManager` 注册-取回-注销） | `packages/core_dart/lib/utils/handle_manager.dart` | 同上（WbHandleManager 组） |
 
@@ -42,8 +44,10 @@
 | 渲染服务：显示列表 / 脏区 / 3D / 缩略图 / 缓存与性能统计 | `packages/core_dart/lib/services/render_service.dart` | `apps/desktop/test/integration/ffi_render_test.dart` |
 | 背景服务：11 个内置预设（`builtinPresets`）→ 经 `page` 域写入 | `packages/core_dart/lib/services/background_service.dart` | `core_dart_test.dart`（background presets 组） |
 | AI 服务：会话生命周期 / 消息 / 语音 / 工具调用确认（ai 域） | `packages/core_dart/lib/services/ai_service.dart` | —（本包测试未直接覆盖） |
+| 同步服务（M1/M2/M3 协同面）：控制面 `connect`（保留 `clientVersion` 参数但 M1 不转发，引擎按默认 `1.0.0`）/`disconnect`/`status`/`setOffline`；数据面 `join`/`sendOperation`/`flush`（sync 域 `sync` op）/`events`（**drain 语义**，解析 `{ops, previews, room{participants,mode,selfRole,presenterId,hostUserId,grantedWrite,locks,lockAcks,selfUserId,checkpointStatus,recovered}, status, interactiveAcks, incomingFollows, removed}`：`locks` 为 `elementId→{userId,expiresAt}` 对象 map、`lockAcks`/`interactiveAcks`/`incomingFollows` 为 drain 批次回执，`removed` 为 room:removed 一次性通知）/`sendPreview`/`lock`（M2 D2-C 软锁：`{action,elementId}` → `{requested}`，异步经 `events`）/`interactive`（M3 交互通道：`{action,userId?,targetUserId?}` → `{requested}`，9 action 白名单，异步经 `events` 的 `interactiveAcks`） | `packages/core_dart/lib/services/sync_service.dart` | `core_dart_test.dart`（sync/crdt 响应类型组 + sync/crdt native 组，真实 DLL） |
+| CRDT 服务（M1 最小面）：`create`（空 docId 自动 `crdt-N`）/ `applyLocal`（响应 `op` 为完整规范化 op，供 `WbSyncService.sendOperation` 直发）；encodeState/merge/list 等未封装 | `packages/core_dart/lib/services/crdt_service.dart` | `core_dart_test.dart`（sync/crdt 响应类型组 + native 组） |
 
-> 说明：sync 域（`wb_sync_*`）与权限/审计（`wb_permission_check`、`wb_audit_*`）符号已在本包绑定表（`wb_core_bindings.dart`）中，但本包暂无对应独立服务封装；同步的 Flutter 侧封装见 11 的 `apps/desktop/lib/services/sync_service.dart`（骨架）。
+> 说明：权限/审计（`wb_permission_check`、`wb_audit_*`）符号已在本包绑定表（`wb_core_bindings.dart`）中，但本包暂无对应独立服务封装。sync/crdt 域已由本包 `sync_service.dart` / `crdt_service.dart` 封装（M1/M2/M3 协同面）；11 的 `apps/desktop/lib/services/sync_service.dart` 仍为桌面端骨架（类与包内 `WbSyncService` 同名，消费方 import 冲突处理见 §5）。
 
 ### 2.4 数据模型（models）
 
@@ -54,28 +58,33 @@
 | 主题规格（`WbThemeSpec`，`colorOf`） | `packages/core_dart/lib/models/theme.dart` | `core_dart_test.dart`（models 组） |
 | 工具描述（`WbTool` / `WbToolSchema`） | `packages/core_dart/lib/models/tool.dart` | `core_dart_test.dart`（models 组） |
 
-### 2.5 测试构成（24 用例）
+### 2.5 测试构成（45 用例）
 
 | 测试文件 | 用例构成 |
 |---|---|
-| `packages/core_dart/test/core_dart_test.dart`（24） | WbJsonCodec 5 + WbResponse 5 + WbBinaryCodec 4 + WbHandleManager 2 + models 5 + background presets 2 + native smoke 1 |
+| `packages/core_dart/test/core_dart_test.dart`（45） | WbJsonCodec 5 + WbResponse 5 + WbBinaryCodec 4 + WbHandleManager 2 + models 5 + background presets 2 + sync/crdt 响应类型（纯解析）11 + native smoke 1 + sync/crdt native 10 |
+
+> sync/crdt 两组测试复用包内 `_findWbCoreDll()` 基座（探测 `build/windows-x64/bin/Release|Debug/wb_core.dll`）+ `WbCoreFfi.load(overridePath:)`，DLL 缺失时自动 skip；存在时全部真实回归（无 mock）。
 
 ## 3. 契约与依赖
 
-- **对外契约（只读）**：`core/include/wb/wb.h`（100 个导出符号，绑定表为其手写镜像）；`core/tools/schema/*.json`（命令/元素 JSON 形状）。
-- **被依赖**：11 app-desktop（经 `whiteboard_core` path 依赖，FFI 服务的唯一来源）；12 apps/web（`wb_core_wasm.dart`，显式 import，不经 `wb_core.dart`）。
+- **对外契约（只读）**：`core/include/wb/wb.h`（109 个导出符号，绑定表为其手写镜像）；`core/tools/schema/*.json`（命令/元素 JSON 形状）。
+- **被依赖**：11 app-desktop（经 `whiteboard_core` path 依赖，FFI 服务的唯一来源；`WbCoreFfi` 实现 `WbEngineCaller`）；12 apps/web（域服务与模型经 `wb_core_common.dart`，引擎实例经 `wb_core_wasm.dart`；`WbCoreWasm` 实现 `WbEngineCaller`）；共享画布包 `whiteboard_canvas`（`packages/canvas`，11/12 共用，经 `wb_core_common.dart`）。
 - **依赖**：`ffi` ^2.1.0；dev：`ffigen` ^13.0.0（`wb.h` 变更后重新生成/校对绑定表，保持既有 typedef 名稳定）。
 - **已知契约事实（回归依据）**：
   - undo/redo 走 `command.undo` / `command.redo`（command 域，经 `WbBoardService.undo/redo`），由 `apps/desktop/test/integration/ffi_command_test.dart` 回归守卫；
   - `wb_element_batch` 的 ops 参数为**顶层数组**（引擎侧 `args.ops.is_array()` 校验），`WbElementService.batch` 直接 `jsonEncode(ops)`，由 `ffi_command_test.dart` 回归守卫；
   - `WbCoreFfi.load(overridePath:)` 库缺失时抛 `ArgumentError`（`DynamicLibrary.open` 语义）——上层以此为优雅降级判定入口（11 的 `WbFfiService` 捕获后进入演示模式）；
-  - 本包测试 **24 个用例**（构成见 2.5）；native smoke 用例在 `wb_core.dll` 不存在时自动 skip。
+  - **M1/M2 协同面**：`WbSyncService.events()` 为 drain 语义（逐调用清空 `ops`/`previews`/`room.lockAcks`，`room`/`status` 为快照）；`WbCrdtService.applyLocal` 响应 `op` 字段为完整规范化 op（`actor/seq/key/value/timestamp/origin`），可直接传入 `WbSyncService.sendOperation`；`wb_sync_connect` 只转发 `endpoint/token`（Dart 层保留 `clientVersion` 参数但对齐契约、M1 不转发）；未连接/离线时 `sendOperation` 入离线队列（`queued:true`）、`flush`/`join` 报 `Conflict`、`sendPreview` 报 `dropped:true`；`WbSyncRoomData.selfUserId` 为服务端签发本端身份（`board:session`；每连接唯一；未连接 / 旧引擎为空串），11 端据此精确标记参与者「我」（不再依赖末位推断）；
+  - **M2 软锁**：`WbSyncService.lock(action:, elementId:)` 转发 `wb_sync_lock`（sync 域 `lock`；action ∈ acquire/release/renew），离线/未连接恒 `{requested:false}`（不抛 `Conflict`），异步授予结果经 `events` 的 `room.lockAcks`（drain 批次回执）+ `room.locks`（`elementId→{userId,expiresAt}` 对象 map；旧引擎/旧服务端数组形态归一为空 map）；
+  - **M3 交互通道**：`WbSyncService.interactive(action:, userId:, targetUserId:)` 转发 `wb_sync_interactive`（sync 域 `interactive`；action ∈ raiseHand/lowerHand/startPresent/stopPresent/grantControl/revokeControl/removeUser/follow/unfollow，其中 grantControl/revokeControl/removeUser 必填 userId、follow/unfollow 必填 targetUserId），缺参/非法 action 抛 `InvalidArgument`，离线/未连接恒 `{requested:false}`（不抛 `Conflict`），异步回执经 `events` 的 `interactiveAcks`（drain 批次）+ `incomingFollows`（drain 批次）+ `removed`（room:removed 一次性通知）；`WbSyncRoomData` 扩展 `selfRole`/`presenterId`/`hostUserId`/`grantedWrite`/`checkpointStatus`（缺省 `idle`）/`recovered`；
+  - 本包测试 **45 个用例**（构成见 2.5）；native smoke 与 sync/crdt native 组在 `wb_core.dll` 不存在时自动 skip。
 
 ## 4. 常用命令
 
 ```powershell
 Set-Location packages\core_dart; E:\code\flutter-sdk\flutter\bin\flutter.bat pub get
-E:\code\flutter-sdk\flutter\bin\flutter.bat analyze
+E:\code\flutter-sdk\flutter\bin\flutter.bat analyze --no-pub
 E:\code\flutter-sdk\flutter\bin\flutter.bat test --no-pub
 
 # 真实引擎冒烟前置（在仓库根构建 C++ 核心）
@@ -88,7 +97,10 @@ Set-Location apps\desktop; $env:WB_REQUIRE_CORE_DLL='1'; E:\code\flutter-sdk\flu
 ## 5. 变更影响提醒（改本模块时注意）
 
 - 改绑定表/加载逻辑 → 影响 **11 app-desktop**（`WbFfiService` 候选路径与演示模式降级）与 **12 app-web**（WASM 入口），需跑 `WB_REQUIRE_CORE_DLL=1` 的 FFI 集成。
+- 改 `engine.dart`（`WbEngineCaller` 调用形状）或域服务签名 → 同时影响 **11 桌面**（`WbCoreFfi` 注入）、**12 Web**（`WbCoreWasm` 注入）与共享画布包；需三端 `flutter analyze` + 对应测试全跑（`flutter test`）。
+- 改 sync 域服务（如 `interactive`）→ 影响 **11 app-desktop** 协同消费面（9 个交互 action 的转发接线）与跨语言回归，需跑 `WB_REQUIRE_CORE_DLL=1` 的 FFI 集成。
 - 改 `WbResponse`/`WbCoreException` 语义 → 全部域服务与 11 状态层的错误处理路径。
 - `wb.h`（01 模块）变更 → 本包绑定表与 typedef 必须同步更新，否则跨语言回归失败。
 - 改模型 `fromJson` 宽容行为 → 11 的 UI 断言与集成测试 fixture 可能受影响。
+- 包内 `WbSyncService` 与 11 的桌面骨架 `WbSyncService` **同名**：桌面端文件同时 import `wb_core.dart` 与桌面骨架时须 `hide WbSyncService`（先例：`board_edit_page.dart` hide `WbSyncService`、`theme_state.dart` hide `WbThemeService`）；11 接线时如需复用包内服务，先评估重命名或沿用 hide。
 - 新增/删除 `lib/**` 文件 → 同步更新本文档 2.x 映射表，并通过 `wb_core.dart` 更新导出面（仅允许加名，不允许改名）。

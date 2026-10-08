@@ -40,7 +40,7 @@ Future<void> _pumpCanvas(
 
 void main() {
   group('WbProfessionalRenderer.measure', () {
-    test('六类默认模型均可测量且不小于最小值', () {
+    test('七类默认模型均可测量且不小于最小值', () {
       for (final WbQuickCreateKind kind in WbQuickCreateKind.values) {
         final Size? size =
             WbProfessionalRenderer.measure(kind.id, kind.defaultModel());
@@ -255,7 +255,7 @@ void main() {
   });
 
   group('CanvasView 渲染冒烟', () {
-    testWidgets('六类专业元素 + 缺失 payload 占位均可绘制且可命中',
+    testWidgets('七类专业元素 + 缺失 payload 占位均可绘制且可命中',
         (WidgetTester tester) async {
       final WbSelectionState sel = WbSelectionState();
       final WbCanvasController c = WbCanvasController(selection: sel);

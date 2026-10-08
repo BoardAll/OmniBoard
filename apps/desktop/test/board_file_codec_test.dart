@@ -107,9 +107,30 @@ WbBoardData _sampleBoard() {
                   text: '条件',
                   laneId: 'lane-1',
                 ),
+                WbFlowNode(
+                  id: 'n3',
+                  x: 160,
+                  y: 0,
+                  type: WbFlowNodeType.umlClass,
+                  width: 160,
+                  height: 120,
+                  compartments: <String>['票据', 'id: int', 'save()'],
+                ),
               ],
               connectors: <WbFlowConnector>[
-                WbFlowConnector(id: 'c1', fromId: 'n1', toId: 'n2', label: '是'),
+                WbFlowConnector(
+                  id: 'c1',
+                  fromId: 'n1',
+                  toId: 'n2',
+                  label: '是',
+                  arrow: WbFlowArrowStyle.open,
+                ),
+                WbFlowConnector(
+                  id: 'c2',
+                  fromId: 'n2',
+                  toId: 'n3',
+                  arrow: WbFlowArrowStyle.composition,
+                ),
               ],
               lanes: <WbFlowLane>[
                 WbFlowLane(
@@ -313,11 +334,21 @@ void main() {
 
     final WbFlowchartModel flow =
         _elementOf(page1, 'el-flow').payload! as WbFlowchartModel;
-    expect(flow.nodes.length, 2);
+    expect(flow.nodes.length, 3);
     expect(flow.nodes[0].type, WbFlowNodeType.start);
     expect(flow.nodes[1].type, WbFlowNodeType.decision);
     expect(flow.nodes[1].laneId, 'lane-1');
-    expect(flow.connectors.single.label, '是');
+    // UML 类：compartments 三段往返 + displayText 拼接。
+    expect(flow.nodes[2].type, WbFlowNodeType.umlClass);
+    expect(flow.nodes[2].width, 160);
+    expect(flow.nodes[2].height, 120);
+    expect(flow.nodes[2].compartments, <String>['票据', 'id: int', 'save()']);
+    expect(flow.nodes[2].displayText, '票据\nid: int\nsave()');
+    // 箭头样式：非默认样式往返（默认实心箭头省略，见兼容性用例）。
+    expect(flow.connectors.length, 2);
+    expect(flow.connectors[0].label, '是');
+    expect(flow.connectors[0].arrow, WbFlowArrowStyle.open);
+    expect(flow.connectors[1].arrow, WbFlowArrowStyle.composition);
     expect(flow.lanes.single.orientation, WbSwimlaneOrientation.horizontal);
     expect(flow.direction, WbFlowLayoutDirection.leftToRight);
     expect(flow.templateId, 'sample-template');
@@ -406,8 +437,13 @@ void main() {
        "size": {"width": 30, "height": "bad"}},
       {"type": "note", "x": 1},
       {"id": "e4", "type": "flowchart",
-       "payload": {"nodes": [{"id": "n1", "type": "no-such"}],
-                   "connectors": [{"fromId": "n1"}],
+       "payload": {"nodes": [{"id": "n1", "type": "no-such"},
+                             {"id": "n2", "compartments": "not-a-list"},
+                             {"id": "n3",
+                              "compartments": ["类名", 42, "", "方法"]}],
+                   "connectors": [{"fromId": "n1"},
+                                  {"id": "c2", "fromId": "n1", "toId": "n2",
+                                   "arrow": "no-such"}],
                    "direction": "no-such"}},
       {"id": "e5", "type": "table", "payload": "not-a-map"},
       {"id": "e6", "type": "image", "payload": 42}
@@ -442,8 +478,15 @@ void main() {
 
       final WbFlowchartModel flow =
           page.elements[2].payload! as WbFlowchartModel;
-      expect(flow.nodes.single.type, WbFlowNodeType.process); // 未知枚举回退
-      expect(flow.connectors, isEmpty); // 缺 id 的连线被丢弃
+      expect(flow.nodes.length, 3);
+      expect(flow.nodes[0].type, WbFlowNodeType.process); // 未知枚举回退
+      expect(flow.nodes[0].compartments, isEmpty); // 缺省空列表
+      expect(flow.nodes[1].compartments, isEmpty); // 非列表回退空
+      // 非字符串项过滤；displayText 再过滤空段。
+      expect(flow.nodes[2].compartments, <String>['类名', '', '方法']);
+      expect(flow.nodes[2].displayText, '类名\n方法');
+      expect(flow.connectors.length, 1); // 缺 id 的连线被丢弃
+      expect(flow.connectors.single.arrow, WbFlowArrowStyle.arrow); // 未知回退
       expect(flow.direction, WbFlowLayoutDirection.topToBottom);
 
       expect(page.elements[3].payload, isNull); // 类型不符 payload
@@ -483,6 +526,160 @@ void main() {
         }),
         <String, dynamic>{'k': 1},
       );
+    });
+
+    test('全部节点类型 / 箭头样式经 payload 编解码稳定往返', () {
+      final WbFlowchartModel model = WbFlowchartModel(
+        nodes: <WbFlowNode>[
+          for (final WbFlowNodeType type in WbFlowNodeType.values)
+            WbFlowNode(
+              id: 'n-${type.id}',
+              x: 0,
+              y: 0,
+              type: type,
+              width: type.defaultWidth,
+              height: type.defaultHeight,
+            ),
+        ],
+        connectors: <WbFlowConnector>[
+          for (final WbFlowArrowStyle style in WbFlowArrowStyle.values)
+            WbFlowConnector(
+              id: 'c-${style.id}',
+              fromId: 'n-start',
+              toId: 'n-end',
+              arrow: style,
+            ),
+        ],
+      );
+      final Object? encoded =
+          WbBoardFileCodec.encodePayload(WbElementKind.flowchart, model);
+      final WbFlowchartModel decoded = WbBoardFileCodec.decodePayload(
+        WbElementKind.flowchart,
+        encoded,
+      )! as WbFlowchartModel;
+      for (final WbFlowNodeType type in WbFlowNodeType.values) {
+        final WbFlowNode node = decoded.nodeById('n-${type.id}')!;
+        expect(node.type, type);
+        expect(node.width, type.defaultWidth);
+        expect(node.height, type.defaultHeight);
+      }
+      for (final WbFlowArrowStyle style in WbFlowArrowStyle.values) {
+        final WbFlowConnector connector = decoded.connectors.singleWhere(
+          (WbFlowConnector c) => c.id == 'c-${style.id}',
+        );
+        expect(connector.arrow, style);
+      }
+    });
+
+    test('compartments / arrow 默认值省略：空列表与实心箭头不落盘', () {
+      final Object? encoded = WbBoardFileCodec.encodePayload(
+        WbElementKind.flowchart,
+        const WbFlowchartModel(
+          nodes: <WbFlowNode>[WbFlowNode(id: 'n1', x: 0, y: 0)],
+          connectors: <WbFlowConnector>[
+            WbFlowConnector(id: 'c1', fromId: 'n1', toId: 'n1'),
+          ],
+        ),
+      );
+      final Map<String, dynamic> json = encoded! as Map<String, dynamic>;
+      final Map<String, dynamic> nodeJson =
+          (json['nodes'] as List<dynamic>).single as Map<String, dynamic>;
+      final Map<String, dynamic> connJson =
+          (json['connectors'] as List<dynamic>).single as Map<String, dynamic>;
+      expect(nodeJson.containsKey('compartments'), isFalse);
+      expect(connJson.containsKey('arrow'), isFalse);
+
+      // 旧格式（缺新字段）解码回默认值 → 旧 .wbd 兼容。
+      final WbFlowchartModel legacy = WbBoardFileCodec.decodePayload(
+        WbElementKind.flowchart,
+        <String, dynamic>{
+          'nodes': <Map<String, dynamic>>[
+            <String, dynamic>{'id': 'n1', 'x': 0, 'y': 0},
+          ],
+          'connectors': <Map<String, dynamic>>[
+            <String, dynamic>{'id': 'c1', 'fromId': 'n1', 'toId': 'n1'},
+          ],
+        },
+      )! as WbFlowchartModel;
+      expect(legacy.nodes.single.compartments, isEmpty);
+      expect(legacy.connectors.single.arrow, WbFlowArrowStyle.arrow);
+    });
+
+    test('组件节点：component 往返 / 缺省省略 / 坏数据容错', () {
+      const WbFlowComponent component = WbFlowComponent(
+        id: 'cmp-1',
+        name: '星形',
+        mime: WbFlowComponent.mimePng,
+        data: 'AA==',
+        width: 64,
+        height: 48,
+      );
+      final Object? encoded = WbBoardFileCodec.encodePayload(
+        WbElementKind.flowchart,
+        const WbFlowchartModel(
+          nodes: <WbFlowNode>[
+            WbFlowNode(
+              id: 'n1',
+              x: 0,
+              y: 0,
+              type: WbFlowNodeType.customComponent,
+              component: component,
+            ),
+            WbFlowNode(id: 'n2', x: 0, y: 0),
+          ],
+        ),
+      );
+      final Map<String, dynamic> json = encoded! as Map<String, dynamic>;
+      final List<dynamic> rawNodes = json['nodes'] as List<dynamic>;
+      final Map<String, dynamic> withComponent =
+          rawNodes[0] as Map<String, dynamic>;
+      final Map<String, dynamic> withoutComponent =
+          rawNodes[1] as Map<String, dynamic>;
+      expect(withComponent['component'], isA<Map<String, dynamic>>());
+      expect(withoutComponent.containsKey('component'), isFalse);
+
+      // 往返：component 全字段稳定（含 base64 数据）。
+      final WbFlowchartModel decoded = WbBoardFileCodec.decodePayload(
+        WbElementKind.flowchart,
+        encoded,
+      )! as WbFlowchartModel;
+      final WbFlowComponent? roundTrip = decoded.nodeById('n1')!.component;
+      expect(roundTrip, isNotNull);
+      expect(roundTrip!.id, 'cmp-1');
+      expect(roundTrip.name, '星形');
+      expect(roundTrip.mime, WbFlowComponent.mimePng);
+      expect(roundTrip.data, 'AA==');
+      expect(roundTrip.width, 64);
+      expect(roundTrip.height, 48);
+      expect(decoded.nodeById('n2')!.component, isNull);
+
+      // 容错：非 Map / 缺 id / mime / data → null（按占位框渲染）。
+      final WbFlowchartModel tolerant = WbBoardFileCodec.decodePayload(
+        WbElementKind.flowchart,
+        <String, dynamic>{
+          'nodes': <Map<String, dynamic>>[
+            <String, dynamic>{'id': 'raw', 'x': 0, 'y': 0, 'component': 'raw'},
+            <String, dynamic>{
+              'id': 'no-mime',
+              'x': 0,
+              'y': 0,
+              'component': <String, dynamic>{'id': 'c', 'data': 'AA=='},
+            },
+            <String, dynamic>{
+              'id': 'no-data',
+              'x': 0,
+              'y': 0,
+              'component': <String, dynamic>{
+                'id': 'c',
+                'mime': WbFlowComponent.mimePng,
+              },
+            },
+          ],
+        },
+      )! as WbFlowchartModel;
+      for (final String id in <String>['raw', 'no-mime', 'no-data']) {
+        expect(tolerant.nodeById(id)!.component, isNull, reason: id);
+      }
     });
   });
 }

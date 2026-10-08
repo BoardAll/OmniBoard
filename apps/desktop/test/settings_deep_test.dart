@@ -118,7 +118,7 @@ Future<void> _pumpSettings(
 
 /// 构造 2 页的页面状态 fixture（演示模式）。
 WbPageState _twoPageFixture({required WbBoardState board, required WbFfiService ffi}) {
-  final WbPageState pages = WbPageState(ffi: ffi)..attach(board.board!);
+  final WbPageState pages = WbPageState(ops: WbFfiPageOps(ffi))..attach(board.board!);
   pages.addPage();
   return pages;
 }

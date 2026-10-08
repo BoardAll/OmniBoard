@@ -1,6 +1,6 @@
 /// wb_core_bindings.dart — FFI binding table over the native `wb_core` library.
 ///
-/// Hand-maintained mirror of `core/include/wb/wb.h` (100 C ABI exports).
+/// Hand-maintained mirror of `core/include/wb/wb.h` (109 C ABI exports).
 /// ffigen-style: regenerate with `dart run ffigen --config ffigen.yaml` when
 /// the header changes; keep the shared typedef names stable either way.
 library;
@@ -377,6 +377,41 @@ class WbCoreBindings {
       library.lookupFunction<WbStr0Native, WbStr0Dart>('wb_sync_status');
   late final WbStrI1Dart wbSyncSetOffline = library
       .lookupFunction<WbStrI1Native, WbStrI1Dart>('wb_sync_set_offline');
+
+  // M1 collaboration data plane — thin JSON-in/JSON-out forwards into the
+  // "sync" domain (see wb.h; the four control-plane symbols above keep their
+  // signatures). No callback-channel symbol (D6 stays poll-based).
+  late final WbStr2Dart wbSyncJoin =
+      library.lookupFunction<WbStr2Native, WbStr2Dart>('wb_sync_join');
+  late final WbStr1Dart wbSyncSendOperation = library
+      .lookupFunction<WbStr1Native, WbStr1Dart>('wb_sync_send_operation');
+  late final WbStr0Dart wbSyncFlush =
+      library.lookupFunction<WbStr0Native, WbStr0Dart>('wb_sync_flush');
+  late final WbStr0Dart wbSyncEvents =
+      library.lookupFunction<WbStr0Native, WbStr0Dart>('wb_sync_events');
+  late final WbStr1Dart wbSyncSendPreview = library
+      .lookupFunction<WbStr1Native, WbStr1Dart>('wb_sync_send_preview');
+
+  // M2 collaboration data plane — `lock` forward into the same "sync" domain
+  // (D2-C software lock; args {action, elementId} → {requested}; the async
+  // outcome surfaces via events' room.lockAcks / room.locks).
+  late final WbStr1Dart wbSyncLock =
+      library.lookupFunction<WbStr1Native, WbStr1Dart>('wb_sync_lock');
+
+  // M3 collaboration data plane — `interactive` forward into the same "sync"
+  // domain (T3.2; args {action, userId?, targetUserId?} over the closed action
+  // set raiseHand / lowerHand / startPresent / stopPresent / grantControl /
+  // revokeControl / removeUser / follow / unfollow → {requested}; the async
+  // outcome surfaces via events' interactiveAcks).
+  late final WbStr1Dart wbSyncInteractive = library
+      .lookupFunction<WbStr1Native, WbStr1Dart>('wb_sync_interactive');
+
+  // ---- CRDT ----------------------------------------------------------------
+
+  late final WbStr2Dart wbCrdtCreate =
+      library.lookupFunction<WbStr2Native, WbStr2Dart>('wb_crdt_create');
+  late final WbStr2Dart wbCrdtApplyLocal = library
+      .lookupFunction<WbStr2Native, WbStr2Dart>('wb_crdt_apply_local');
 
   // ---- Permission / audit --------------------------------------------------
 

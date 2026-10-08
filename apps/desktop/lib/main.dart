@@ -29,7 +29,10 @@ Future<void> main() async {
   runApp(WhiteboardApp(
     ffiService: ffiService,
     themeState: WbThemeState(store: settingsStore),
-    syncService: WbSyncService(serverUrl: settingsStore.syncServerUrl),
+    collabService: WbCollabService(
+      engine: WbFfiCollabEngine(ffiService),
+      endpoint: settingsStore.syncServerUrl,
+    ),
     shortcutService: WbShortcutService(),
     settingsStore: settingsStore,
     boardFileService: WbBoardFileService(settings: settingsStore),

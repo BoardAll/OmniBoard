@@ -7,6 +7,7 @@
 /// 拉入 `dart:js_interop`），Flutter Web 应用请显式 import。
 library;
 
+export 'engine.dart';
 export 'wb_core_bindings.dart';
 export 'wb_core_ffi.dart';
 
@@ -24,9 +25,11 @@ export 'models/tool.dart';
 export 'services/ai_service.dart';
 export 'services/background_service.dart';
 export 'services/board_service.dart';
+export 'services/crdt_service.dart';
 export 'services/element_service.dart';
 export 'services/page_service.dart';
 export 'services/render_service.dart';
+export 'services/sync_service.dart';
 export 'services/theme_service.dart';
 export 'services/tool_service.dart';
 

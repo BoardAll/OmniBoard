@@ -1,24 +1,24 @@
+import '../engine.dart';
 import '../models/tool.dart';
 import '../utils/json_codec.dart';
-import '../wb_core_ffi.dart';
 
 /// 工具服务：工具注册表（list/get/execute）+ 工具栏上下文（toolbar 域）。
 class WbToolService {
   const WbToolService(this.ffi);
 
-  final WbCoreFfi ffi;
+  final WbEngineCaller ffi;
 
   /// 全部工具描述。
   List<WbTool> list() {
     final WbResponse response =
-        WbResponse.parse(ffi.call0(ffi.bindings.wbToolList));
+        WbResponse.parse(ffi.call0('wb_tool_list'));
     return WbTool.listFromJson(response.requireResult()['tools']);
   }
 
   /// 单个工具（含参数 schema）。
   WbToolSchema get(String toolId) {
     final WbResponse response =
-        WbResponse.parse(ffi.call1(ffi.bindings.wbToolGet, toolId));
+        WbResponse.parse(ffi.call1('wb_tool_get', toolId));
     return WbToolSchema.fromJson(
       WbJsonCodec.unwrap(response.requireResult(), 'tool'),
     );
@@ -30,7 +30,7 @@ class WbToolService {
     Map<String, dynamic> args = const <String, dynamic>{},
   ]) {
     final WbResponse response = WbResponse.parse(
-      ffi.call2(ffi.bindings.wbExecuteTool, toolId, WbJsonCodec.encode(args)),
+      ffi.call2('wb_execute_tool', toolId, WbJsonCodec.encode(args)),
     );
     return response.requireResult();
   }
@@ -38,7 +38,7 @@ class WbToolService {
   /// 工具栏模型（全部工具按钮 + 分组）。
   Map<String, dynamic> toolbarList() {
     final WbResponse response =
-        WbResponse.parse(ffi.call0(ffi.bindings.wbToolbarList));
+        WbResponse.parse(ffi.call0('wb_toolbar_list'));
     return response.requireResult();
   }
 
@@ -46,7 +46,7 @@ class WbToolService {
   Map<String, dynamic> toolbarContext(List<String> elementIds) {
     final WbResponse response = WbResponse.parse(
       ffi.call1(
-        ffi.bindings.wbToolbarContext,
+        'wb_toolbar_context',
         WbJsonCodec.encode(<String, dynamic>{'elementIds': elementIds}),
       ),
     );
@@ -60,7 +60,7 @@ class WbToolService {
   ]) {
     final WbResponse response = WbResponse.parse(
       ffi.call2(
-        ffi.bindings.wbToolbarInvoke,
+        'wb_toolbar_invoke',
         toolId,
         WbJsonCodec.encode(args),
       ),

@@ -8,6 +8,8 @@
 library;
 
 import 'package:whiteboard_ai/ai_client.dart';
+import 'package:whiteboard_canvas/context_editors/flow_components.dart';
+import 'package:whiteboard_canvas/context_editors/flowchart_editor.dart';
 
 import 'local_store.dart';
 import 'theme_service.dart';
@@ -61,6 +63,38 @@ class WbSettingsStore implements WbThemePrefsSink {
   @override
   set appearance(WbAppearancePrefs value) =>
       _write('appearance', value.toJson());
+
+  // ---------------------------------------------------------------------------
+  // 流程图图形库偏好
+  // ---------------------------------------------------------------------------
+
+  /// 流程图编辑器图形库偏好（`flowLibrary` 键：启用 / 折叠的库与
+  /// 「我的组件」；null = 从未保存过）。
+  WbFlowLibraryPrefs? get flowLibrary {
+    final Object? raw = _data()['flowLibrary'];
+    if (raw is! Map) {
+      return null;
+    }
+    return WbFlowLibraryPrefs.fromJson(
+      raw,
+      defaultEnabled: flowLibraryDefaultEnabled,
+    );
+  }
+
+  set flowLibrary(WbFlowLibraryPrefs? value) {
+    if (value == null) {
+      _data().remove('flowLibrary');
+      _flush();
+      return;
+    }
+    _write('flowLibrary', value.toJson());
+  }
+
+  /// 全部图形库 id（`enabledLibraries` 字段缺失时的默认启用集合）。
+  static final Set<String> flowLibraryDefaultEnabled = <String>{
+    for (final WbFlowShapeLibrary library in WbFlowShapeLibrary.values)
+      library.id,
+  };
 
   // ---------------------------------------------------------------------------
   // AI 提供商配置

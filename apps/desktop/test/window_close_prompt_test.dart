@@ -30,7 +30,7 @@ void main() {
   late WbBoardFileService fileService;
   late WbCanvasController canvas;
   late WbThemeState theme;
-  late WbSyncService sync;
+  late WbCollabService sync;
   late int destroyed;
 
   String savedPath() => '${tempDir.path}${Platform.pathSeparator}saved.wbd';
@@ -51,7 +51,7 @@ void main() {
     // 测试侧三源：绑定到应用级文件服务（应用自身不会重复绑定）。
     final WbFfiService ffi = _demoFfi();
     final WbBoardState boardState = WbBoardState(ffi: ffi);
-    final WbPageState pageState = WbPageState(ffi: ffi);
+    final WbPageState pageState = WbPageState(ops: WbFfiPageOps(ffi));
     canvas = WbCanvasController();
     boardState.open('board-1', name: '关窗测试');
     pageState.attach(boardState.board!);
@@ -59,7 +59,7 @@ void main() {
     fileService.bindBoard(board: boardState, pages: pageState, canvas: canvas);
 
     theme = WbThemeState();
-    sync = WbSyncService();
+    sync = WbCollabService();
   });
 
   tearDown(() {
@@ -80,7 +80,7 @@ void main() {
     await tester.pumpWidget(WhiteboardApp(
       ffiService: _demoFfi(),
       themeState: theme,
-      syncService: sync,
+      collabService: sync,
       shortcutService: WbShortcutService(),
       boardFileService: fileService,
       windowDestroyer: () async {
