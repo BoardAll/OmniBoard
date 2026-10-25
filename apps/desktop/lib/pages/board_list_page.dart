@@ -4,10 +4,12 @@ library;
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_miuix/miuix.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+import 'package:whiteboard_cast/cast.dart';
 import 'package:whiteboard_icons/icons.dart';
 import 'package:whiteboard_theme/theme.dart';
 
@@ -63,6 +65,58 @@ class _BoardListPageState extends State<BoardListPage> {
 
   void _removeBoard(WbRecentBoard board) {
     setState(() => _recent.remove(board));
+  }
+
+  /// 首页「白板」入口：继续最近白板（本次会话 / 本地文件），没有则新建。
+  void _openWhiteboard() {
+    if (_recent.isNotEmpty) {
+      context.push(WbRoutes.boardPath(_recent.first.id));
+      return;
+    }
+    final List<WbRecentBoardEntry> files = _files()?.recentBoards ??
+        const <WbRecentBoardEntry>[];
+    if (files.isNotEmpty) {
+      _openFile(files.first.path);
+      return;
+    }
+    _createBoard();
+  }
+
+  /// 首页「局域网投屏」入口：打开同一套白板并自动开启投屏接收。
+  void _openCastBoard() {
+    final String id = 'board-cast-${DateTime.now().millisecondsSinceEpoch}';
+    setState(() {
+      _recent.insert(
+        0,
+        WbRecentBoard(id: id, name: '投屏白板', updatedAt: DateTime.now()),
+      );
+    });
+    context.push(WbRoutes.boardPath(id, cast: true));
+  }
+
+  /// 发送端：输入四位投屏码后加入接收端房间，并在白板内展示发送状态。
+  Future<void> _joinCastAsSender() async {
+    final WbCastController cast = context.read<WbCastController>();
+    final String configured =
+        (context.read<WbSettingsStore?>()?.syncServerUrl ?? '').trim();
+    final String host = Platform.localHostname.trim();
+    final bool? joined = await WbCastJoinDialog.show(
+      context,
+      cast,
+      deviceName: host.isEmpty ? 'Windows 设备' : host,
+      endpoint: configured.isEmpty ? WbCastConfig.defaultEndpoint : configured,
+    );
+    if (!mounted || joined != true) {
+      return;
+    }
+    final String id = 'board-cast-${DateTime.now().millisecondsSinceEpoch}';
+    setState(() {
+      _recent.insert(
+        0,
+        WbRecentBoard(id: id, name: '投屏发送端', updatedAt: DateTime.now()),
+      );
+    });
+    unawaited(context.push(WbRoutes.boardPath(id, castSender: true)));
   }
 
   /// 文件服务（可空：未挂载 Provider 时打开入口给出轻提示）。
@@ -171,9 +225,7 @@ class _BoardListPageState extends State<BoardListPage> {
               ],
             ),
             Expanded(
-              child: _recent.isEmpty && recentFiles.isEmpty
-                  ? const _EmptyState()
-                  : _buildList(colors, recentFiles),
+              child: _buildContent(colors, recentFiles),
             ),
           ],
         ),
@@ -181,25 +233,87 @@ class _BoardListPageState extends State<BoardListPage> {
     );
   }
 
-  Widget _buildList(
+  Widget _buildContent(
     WbThemeColors colors,
     List<WbRecentBoardEntry> recentFiles,
   ) {
     return ListView(
       padding: const EdgeInsets.fromLTRB(24, 16, 24, 88),
       children: <Widget>[
-        if (recentFiles.isNotEmpty) ...<Widget>[
-          _sectionHeader('本地文件'),
-          for (final WbRecentBoardEntry entry in recentFiles)
-            _fileCard(entry, colors),
-        ],
-        if (recentFiles.isNotEmpty && _recent.isNotEmpty)
-          const SizedBox(height: 8),
-        if (_recent.isNotEmpty) ...<Widget>[
-          if (recentFiles.isNotEmpty) _sectionHeader('本次会话'),
-          for (final WbRecentBoard board in _recent) _boardCard(board, colors),
+        // 两个主入口：白板（默认不开启投屏）/ 局域网投屏（自动开启接收）。
+        _buildEntries(colors),
+        const SizedBox(height: 22),
+        if (recentFiles.isEmpty && _recent.isEmpty)
+          const SizedBox(height: 240, child: _EmptyState())
+        else ...<Widget>[
+          if (recentFiles.isNotEmpty) ...<Widget>[
+            _sectionHeader('本地文件'),
+            for (final WbRecentBoardEntry entry in recentFiles)
+              _fileCard(entry, colors),
+          ],
+          if (recentFiles.isNotEmpty && _recent.isNotEmpty)
+            const SizedBox(height: 8),
+          if (_recent.isNotEmpty) ...<Widget>[
+            if (recentFiles.isNotEmpty) _sectionHeader('本次会话'),
+            for (final WbRecentBoard board in _recent) _boardCard(board, colors),
+          ],
         ],
       ],
+    );
+  }
+
+  /// 首页双卡片入口（宽屏左右并排，窄屏上下排列）。
+  Widget _buildEntries(WbThemeColors colors) {
+    final Widget whiteboard = _HomeEntryCard(
+      icon: const MiuixIcon(icon: LinearIcons.page),
+      title: '白板',
+      subtitle: '打开普通白板；默认不自动开启投屏接收',
+      accent: colors.primary,
+      onTap: _openWhiteboard,
+    );
+    final Widget cast = _HomeEntryCard(
+      icon: const MiuixIcon(icon: LinearIcons.cloud),
+      title: '局域网投屏',
+      subtitle: '打开同一套白板，自动开启接收；投屏码即房间号',
+      accent: const Color(0xFF12B76A),
+      onTap: _openCastBoard,
+      footer: Align(
+        alignment: Alignment.centerLeft,
+        child: OutlinedButton.icon(
+          onPressed: () => unawaited(_joinCastAsSender()),
+          icon: const Icon(Icons.keyboard_alt_outlined, size: 15),
+          label: const Text('输入投屏码'),
+          style: OutlinedButton.styleFrom(
+            foregroundColor: colors.primary,
+            side: BorderSide(color: colors.primary.withValues(alpha: 0.35)),
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            minimumSize: const Size(0, 30),
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            textStyle: const TextStyle(fontSize: 12),
+          ),
+        ),
+      ),
+    );
+    return LayoutBuilder(
+      builder: (BuildContext context, BoxConstraints constraints) {
+        if (constraints.maxWidth >= 780) {
+          // 方块卡片：固定宽高，避免被拉伸成横条。
+          return Row(
+            children: <Widget>[
+              SizedBox(width: 340, height: 220, child: whiteboard),
+              const SizedBox(width: 16),
+              SizedBox(width: 340, height: 220, child: cast),
+            ],
+          );
+        }
+        return Column(
+          children: <Widget>[
+            SizedBox(height: 200, child: whiteboard),
+            const SizedBox(height: 12),
+            SizedBox(height: 220, child: cast),
+          ],
+        );
+      },
     );
   }
 
@@ -322,6 +436,119 @@ class _BoardListPageState extends State<BoardListPage> {
       return '${diff.inHours} 小时前';
     }
     return '${diff.inDays} 天前';
+  }
+}
+
+/// 首页主入口方块卡片（白板 / 局域网投屏）。
+class _HomeEntryCard extends StatefulWidget {
+  const _HomeEntryCard({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.accent,
+    required this.onTap,
+    this.footer,
+  });
+
+  final Widget icon;
+  final String title;
+  final String subtitle;
+  final Color accent;
+  final VoidCallback onTap;
+  final Widget? footer;
+
+  @override
+  State<_HomeEntryCard> createState() => _HomeEntryCardState();
+}
+
+class _HomeEntryCardState extends State<_HomeEntryCard> {
+  bool _hover = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final WbThemeColors colors = context.wbColors;
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (PointerEnterEvent _) => setState(() => _hover = true),
+      onExit: (PointerExitEvent _) => setState(() => _hover = false),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 140),
+        decoration: BoxDecoration(
+          color: _hover ? colors.hover : colors.elevated,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: _hover
+                ? widget.accent.withValues(alpha: 0.55)
+                : colors.cardBorder,
+          ),
+          boxShadow: <BoxShadow>[
+            BoxShadow(
+              color: Colors.black.withValues(alpha: _hover ? 0.12 : 0.06),
+              blurRadius: _hover ? 22 : 12,
+              offset: const Offset(0, 6),
+            ),
+          ],
+        ),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(16),
+            onTap: widget.onTap,
+            child: Padding(
+              padding: const EdgeInsets.all(18),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Row(
+                    children: <Widget>[
+                      Container(
+                        width: 42,
+                        height: 42,
+                        decoration: BoxDecoration(
+                          color: widget.accent.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Center(child: widget.icon),
+                      ),
+                      const Spacer(),
+                      Icon(
+                        Icons.arrow_outward_rounded,
+                        size: 16,
+                        color: colors.icon.withValues(alpha: 0.35),
+                      ),
+                    ],
+                  ),
+                  const Spacer(),
+                  Text(
+                    widget.title,
+                    style: TextStyle(
+                      color: colors.icon,
+                      fontSize: 19,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    widget.subtitle,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: colors.icon.withValues(alpha: 0.58),
+                      fontSize: 12,
+                      height: 1.45,
+                    ),
+                  ),
+                  if (widget.footer != null) ...<Widget>[
+                    const SizedBox(height: 12),
+                    widget.footer!,
+                  ],
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
 

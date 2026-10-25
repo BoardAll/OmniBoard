@@ -8,9 +8,15 @@
 #                        server via `npm ci && npm run build` (Node 20 LTS).
 #   web/                 Flutter Web build output (apps\web\build\web) with the
 #                        realtime endpoint baked in at build time via
-#                        --dart-define=WB_REALTIME_ENDPOINT=http://<addr>:<port>
+#                        --dart-define=WB_REALTIME_ENDPOINT=<endpoint>
 #                        (the Web app connects to it directly; see
 #                        apps/web/lib/services/realtime_service.dart).
+#
+#                        -Scheme https 时 endpoint 默认取 https://<addr>
+#                        （443 同源：nginx 把 /socket.io/ 反代到本机 realtime
+#                        端口）。投屏采集 getDisplayMedia/getUserMedia 只在
+#                        安全上下文（HTTPS / localhost）可用，纯 HTTP + IP
+#                        下 navigator.mediaDevices 为 undefined。
 #   deploy/              install.sh + systemd/nginx templates + INFO.txt —
 #                        the tarball is self-contained, the server-side
 #                        installer reads the templates from here.
@@ -21,6 +27,7 @@
 # Usage:
 #   tools\packaging\deploy\pack_server_deploy.ps1 -ServerAddress 203.0.113.10
 #   tools\packaging\deploy\pack_server_deploy.ps1 -ServerAddress wb.example.com -RealtimePort 8790
+#   tools\packaging\deploy\pack_server_deploy.ps1 -ServerAddress wb.example.com -Scheme https
 #   tools\packaging\deploy\pack_server_deploy.ps1 -ServerAddress 203.0.113.10 -SkipWebBuild
 #
 # After packing (from the repository root):
@@ -48,6 +55,16 @@ param(
     # Realtime service port (default 8790, matches services/realtime DEFAULT_PORT).
     [int]$RealtimePort = 8790,
 
+    # Web page scheme: http (default, direct IP + port) or https (domain + TLS).
+    # https keeps the endpoint same-origin on 443 (nginx proxies /socket.io/
+    # to the local realtime port). Screen/camera capture requires a secure
+    # context, so HTTPS is mandatory for casting from a real server.
+    [ValidateSet('http', 'https')]
+    [string]$Scheme = 'http',
+
+    # Full endpoint override (highest priority; e.g. a separate wss host).
+    [string]$Endpoint,
+
     # Reuse the existing apps\web\build\web output instead of rebuilding.
     [switch]$SkipWebBuild,
 
@@ -73,11 +90,29 @@ $webBuildDir = Join-Path $repoRoot 'apps\web\build\web'
 $realtimeSrc = Join-Path $repoRoot 'services\realtime'
 if (-not $OutDir) { $OutDir = Join-Path $repoRoot 'dist' }
 
-$endpoint = "http://${ServerAddress}:${RealtimePort}"
+# NOTE: PowerShell variable names are case-insensitive, so the local variable
+# must NOT be called $endpoint — that would overwrite the -Endpoint parameter
+# (making a later `if ($Endpoint)` always true). Use $webEndpoint.
+if ($Endpoint) {
+    $webEndpoint = $Endpoint.Trim().TrimEnd('/')
+    if ($webEndpoint -notmatch '^https?://') {
+        throw "-Endpoint must start with http:// or https:// (got: $Endpoint)."
+    }
+} elseif ($Scheme -eq 'https') {
+    # Same-origin on 443: the page and /socket.io/ share the TLS host, so the
+    # browser has no mixed-content problem and realtime needs no public port.
+    $webEndpoint = "https://$ServerAddress"
+} else {
+    $webEndpoint = "http://${ServerAddress}:${RealtimePort}"
+}
 
 Write-Host "[pack_server_deploy] Repository : $repoRoot"
-Write-Host "[pack_server_deploy] Endpoint   : $endpoint"
+Write-Host "[pack_server_deploy] Endpoint   : $webEndpoint"
 Write-Host "[pack_server_deploy] Output dir : $OutDir"
+if ($Scheme -eq 'https' -and -not $Endpoint) {
+    Write-Host ("[pack_server_deploy] HTTPS mode : nginx 需把 /socket.io/ 反代到 127.0.0.1:{0}" -f $RealtimePort)
+    Write-Host '[pack_server_deploy]              （install.sh --tls-domain 会写入对应模板）'
+}
 
 # --- 1. Build the Flutter Web bundle (endpoint baked in) ---------------------
 if (-not $SkipWebBuild) {
@@ -93,12 +128,12 @@ if (-not $SkipWebBuild) {
     # Same pattern as tools\scripts\build_all.ps1.
     $flArgs = @{
         Target    = 'web'
-        ExtraArgs = @("--dart-define=WB_REALTIME_ENDPOINT=$endpoint")
+        ExtraArgs = @("--dart-define=WB_REALTIME_ENDPOINT=$webEndpoint")
     }
     if ($FlutterPath) { $flArgs['FlutterPath'] = $FlutterPath }
     if ($BuildName)   { $flArgs['BuildName'] = $BuildName }
 
-    Write-Host "[pack_server_deploy] Building Flutter Web with WB_REALTIME_ENDPOINT=$endpoint ..."
+    Write-Host "[pack_server_deploy] Building Flutter Web with WB_REALTIME_ENDPOINT=$webEndpoint ..."
     & $flScript @flArgs
     if ($LASTEXITCODE -ne 0) {
         throw "build_flutter.ps1 failed (exit $LASTEXITCODE)."
@@ -153,8 +188,9 @@ try {
         'whiteboard-server-deploy'
         "packed-at      : $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
         "server-address : $ServerAddress"
+        "web-scheme     : $Scheme"
         "realtime-port  : $RealtimePort"
-        "web-endpoint   : $endpoint"
+        "web-endpoint   : $webEndpoint"
         "version        : $version"
     )
     Set-Content -LiteralPath (Join-Path $depDst 'INFO.txt') -Value ($infoLines -join "`n") -Encoding ASCII
@@ -184,7 +220,11 @@ try {
     Write-Host ' Upload + deploy (run from the repository root):'
     Write-Host "   scp .\dist\$tarName <user>@${ServerAddress}:/tmp/"
     Write-Host "   scp .\tools\packaging\deploy\install.sh <user>@${ServerAddress}:/tmp/"
-    Write-Host "   ssh <user>@${ServerAddress} `"sudo bash /tmp/install.sh /tmp/$tarName`""
+    $installArgs = "/tmp/$tarName"
+    if ($Scheme -eq 'https' -and -not $Endpoint) {
+        $installArgs += " --tls-domain $ServerAddress"
+    }
+    Write-Host "   ssh <user>@${ServerAddress} `"sudo bash /tmp/install.sh $installArgs`""
     Write-Host '====================================================================' -ForegroundColor Green
     exit 0
 } finally {

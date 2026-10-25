@@ -2,6 +2,7 @@
 library;
 
 import 'dart:async';
+import 'dart:io';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
@@ -12,6 +13,7 @@ import 'package:flutter_miuix/miuix.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import 'package:whiteboard_core/wb_core.dart';
+import 'package:whiteboard_cast/cast.dart';
 import 'package:whiteboard_icons/icons.dart';
 import 'package:whiteboard_theme/theme.dart';
 import 'package:whiteboard_ui_kit/ui_kit.dart';
@@ -23,6 +25,7 @@ import '../routes.dart';
 import '../services/ai_canvas_executor.dart';
 import '../services/board_file_service.dart';
 import '../services/ffi_service.dart';
+import '../services/settings_store.dart';
 import '../services/sync_service.dart';
 import '../services/theme_service.dart';
 import '../state/ai_state.dart';
@@ -61,6 +64,8 @@ class BoardEditPage extends StatefulWidget {
     required this.boardId,
     this.boardName = '',
     this.openFilePath = '',
+    this.castMode = false,
+    this.castSender = false,
   });
 
   /// 白板 id（路由参数）。
@@ -71,6 +76,12 @@ class BoardEditPage extends StatefulWidget {
 
   /// 待打开的本地 `.wbd` 文件路径（列表页入口经路由 extra 传入；空 = 新建）。
   final String openFilePath;
+
+  /// 局域网投屏入口：打开同一套白板并**自动开启投屏接收**。
+  final bool castMode;
+
+  /// 发送端：已在首页输入投屏码加入房间（本页展示发送状态）。
+  final bool castSender;
 
   @override
   State<BoardEditPage> createState() => _BoardEditPageState();
@@ -95,6 +106,12 @@ class _BoardEditPageState extends State<BoardEditPage> {
   late final WbTransparentOverlayService _overlay;
   late final WbAnnotationController _annotation;
   late final WbDesktopBackdropController _backdrop;
+
+  /// 投屏控制器（应用级单例；本页只负责白板内的投屏 UI 与会话归属）。
+  late final WbCastController _cast;
+
+  /// 本页是否拥有当前投屏会话（离开页面时必须结束，避免遗留连接）。
+  bool _ownsCastSession = false;
   bool _aiOpen = true;
   bool _paletteOpen = false;
 
@@ -152,9 +169,15 @@ class _BoardEditPageState extends State<BoardEditPage> {
     _backdrop = WbDesktopBackdropController();
     _backdrop.addListener(_onBackdropChanged);
     _annotation.addListener(_onAnnotationChanged);
+    // 投屏：投屏码悬浮卡 + 视频浮层只作为画布上方覆盖层，不进入元素模型。
+    _cast = context.read<WbCastController>();
+    _ownsCastSession = widget.castMode || widget.castSender;
     HardwareKeyboard.instance.addHandler(_onGlobalKeyEvent);
-    WidgetsBinding.instance
-        .addPostFrameCallback((_) => unawaited(_openBoard()));
+    WidgetsBinding.instance.addPostFrameCallback((_) => unawaited(_openBoard()));
+    if (widget.castMode) {
+      WidgetsBinding.instance
+          .addPostFrameCallback((_) => unawaited(_startCastReceiver()));
+    }
   }
 
   @override
@@ -174,8 +197,73 @@ class _BoardEditPageState extends State<BoardEditPage> {
     _fileService?.unbind();
     _canvas.removeListener(_onCanvasChanged);
     _canvas.dispose();
+    // 退出白板：结束本页拥有的投屏会话，释放 Peer / 渲染器 / Socket（幂等）。
+    if (_ownsCastSession) {
+      unawaited(_cast.endSession());
+    }
     super.dispose();
   }
+
+  // ---- 局域网投屏（复用 realtime 服务 /cast；媒体 P2P） -------------------
+
+  /// 投屏服务地址：优先使用设置中的协作服务地址（同进程同端口）。
+  String _castEndpoint() {
+    final String configured =
+        (context.read<WbSettingsStore?>()?.syncServerUrl ?? '').trim();
+    if (configured.isNotEmpty) return configured;
+    return WbCastConfig.defaultEndpoint;
+  }
+
+  /// 本机设备名（显示在接收端连接列表）。
+  String _castDeviceName() {
+    final String host = Platform.localHostname.trim();
+    return host.isEmpty ? 'Windows 设备' : host;
+  }
+
+  /// 投屏入口：开启接收（建房成功后才有有效四位码）。
+  Future<void> _startCastReceiver() async {
+    if (!mounted) return;
+    _cast.configure(endpoint: _castEndpoint());
+    _ownsCastSession = true;
+    final bool ok = await _cast.startReceiver(deviceName: _castDeviceName());
+    if (!mounted || ok) return;
+    _snack(_cast.errorMessage ?? '开启投屏接收失败');
+  }
+
+  /// 发送端：输入四位投屏码发起投屏。
+  Future<void> _openCastJoin() async {
+    if (_cast.role == WbCastRole.receiver && _cast.hasActiveRoom) {
+      await WbCastSettingsSheet.show(context, _cast);
+      return;
+    }
+    final bool? joined = await WbCastJoinDialog.show(
+      context,
+      _cast,
+      deviceName: _castDeviceName(),
+      endpoint: _castEndpoint(),
+    );
+    if (!mounted || joined != true) return;
+    _ownsCastSession = true;
+    _snack('投屏已发起：接收端确认后开始传输画面');
+  }
+
+  /// 顶栏投屏按钮：未开启→发起投屏；接收中→投屏设置；发送中→结束发送。
+  Future<void> _handleCastAction() async {
+    if (_cast.role == WbCastRole.receiver) {
+      await WbCastSettingsSheet.show(context, _cast);
+      return;
+    }
+    if (_cast.role == WbCastRole.sender) {
+      await _cast.leaveAsSender();
+      _ownsCastSession = false;
+      if (mounted) _snack('已结束本次投屏');
+      return;
+    }
+    await _openCastJoin();
+  }
+
+  Future<void> _openCastSettings() =>
+      WbCastSettingsSheet.show(context, _cast);
 
   /// 初始化白板：有 [BoardEditPage.openFilePath] 时打开本地文件，
   /// 否则走新建流程；完成后把文件服务绑定到三源（干净基线）。
@@ -797,6 +885,11 @@ class _BoardEditPageState extends State<BoardEditPage> {
             ),
             const _SyncStatusChip(),
             _action(
+              _cast.role == WbCastRole.receiver ? '投屏设置' : '局域网投屏',
+              Icons.cast,
+              () => unawaited(_handleCastAction()),
+            ),
+            _action(
               '显示桌面',
               LinearIcons.fitScreen,
               () => unawaited(_annotation.enter()),
@@ -917,6 +1010,47 @@ class _BoardEditPageState extends State<BoardEditPage> {
                           unawaited(_createProfessionalElement(kind)),
                     ),
                   ),
+                  // —— 局域网投屏覆盖层（独立于白板文档模型） ——
+                  // 1) 多路视频浮层：每路一个独立可拖动 / 缩放窗口。
+                  Positioned.fill(
+                    child: WbCastOverlayLayer(controller: _cast),
+                  ),
+                  // 2) 投屏码悬浮卡（设备列表已内联进卡片，不再单独占位；仅接收端会话存在时）。
+                  Positioned.fill(
+                    child: ListenableBuilder(
+                      listenable: _cast,
+                      builder: (BuildContext context, Widget? child) {
+                        if (_cast.role != WbCastRole.receiver) {
+                          return const SizedBox.shrink();
+                        }
+                        return WbCastCodeOverlay(
+                          controller: _cast,
+                          onOpenSettings: () =>
+                              unawaited(_openCastSettings()),
+                        );
+                      },
+                    ),
+                  ),
+                  // 3) 发送端状态胶囊（输入投屏码后展示本端推流状态）。
+                  Positioned.fill(
+                    child: ListenableBuilder(
+                      listenable: _cast,
+                      builder: (BuildContext context, Widget? child) {
+                        if (_cast.role != WbCastRole.sender) {
+                          return const SizedBox.shrink();
+                        }
+                        return Stack(
+                          children: <Widget>[
+                            Positioned(
+                              top: 16,
+                              right: 16,
+                              child: WbCastSenderChip(controller: _cast),
+                            ),
+                          ],
+                        );
+                      },
+                    ),
+                  ),
                 ],
               );
             },
@@ -969,3 +1103,5 @@ class _SyncStatusChip extends StatelessWidget {
     );
   }
 }
+
+/// 发送端状态胶囊展示见 `whiteboard_cast` 的 `WbCastSenderChip`（与 Web 端共用）。

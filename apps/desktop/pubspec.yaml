@@ -30,6 +30,9 @@ dependencies:
     path: ../../packages/mcp_client
   whiteboard_windows:
     path: ../../platform/windows
+  # 局域网投屏（四位码即房间号；信令走既有 realtime 服务 /cast，媒体 P2P）。
+  whiteboard_cast:
+    path: ../../packages/cast
   provider: ^6.1.0
   riverpod: ^2.5.0
   go_router: ^14.0.0

@@ -510,34 +510,6 @@ class WbCanvasPainter extends CustomPainter {
     );
   }
 
-  void _paintStroke(
-    Canvas canvas,
-    List<Offset> points,
-    Color color,
-    double width,
-  ) {
-    if (points.isEmpty) {
-      return;
-    }
-    if (points.length == 1) {
-      canvas.drawCircle(points.first, width / 2, Paint()..color = color);
-      return;
-    }
-    final Path path = Path()..moveTo(points.first.dx, points.first.dy);
-    for (int i = 1; i < points.length; i++) {
-      path.lineTo(points[i].dx, points[i].dy);
-    }
-    canvas.drawPath(
-      path,
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = width
-        ..strokeCap = StrokeCap.round
-        ..strokeJoin = StrokeJoin.round
-        ..color = color,
-    );
-  }
-
   // ---- 手势预览 ---------------------------------------------------------
 
   void _paintStrokePreview(Canvas canvas) {

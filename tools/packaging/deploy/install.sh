@@ -1,7 +1,17 @@
 #!/usr/bin/env bash
 # ============================================================================
-# install.sh — Whiteboard 服务器端部署脚本（Ubuntu，直连 IP + 端口模式）
+# install.sh — Whiteboard 服务器端部署脚本（Ubuntu）
 # ============================================================================
+# 两种站点模式：
+#   * 默认（直连 IP + 端口）：Web 静态站 :80，realtime 直连 :8790。
+#   * --tls-domain（HTTPS 同源）：nginx :443 终止 TLS，/socket.io/ 反代到
+#     本机 :8790；Web 端 endpoint 为 https://<域名>（打包时 -Scheme https）。
+#
+# 为什么需要 HTTPS：投屏采集 getDisplayMedia/getUserMedia 只在安全上下文
+# （HTTPS / localhost / 127.0.0.1）可用。纯 HTTP + IP 访问时
+# navigator.mediaDevices 为 undefined，页面报
+# "Unable to getDisplayMedia: Null check operator used on a null value"。
+#
 # 部署内容：
 #   * realtime 协同服务（services/realtime，Node 20 + systemd，默认 :8790）
 #   * Web 静态应用（web/，nginx 托管，默认 :80，已注入 realtime 地址）
@@ -9,6 +19,7 @@
 # 用法（在服务器上，需要 root）：
 #   sudo bash install.sh whiteboard-server-deploy.tar.gz
 #   sudo bash install.sh whiteboard-server-deploy.tar.gz --app-dir /opt/whiteboard --port 8790
+#   sudo bash install.sh whiteboard-server-deploy.tar.gz --tls-domain wb.example.com
 #
 # 幂等：可重复执行（= 重新解包 + 重新构建 + 重启服务），用于更新部署。
 # ============================================================================
@@ -20,6 +31,9 @@ RUN_USER=""
 NPM_REGISTRY=""
 SKIP_DEPS=0
 TAR_PATH=""
+TLS_DOMAIN=""
+TLS_CERT=""
+TLS_KEY=""
 MIN_NODE_MAJOR=18
 
 log()  { printf '\033[1;32m[install]\033[0m %s\n' "$*"; }
@@ -36,6 +50,12 @@ usage() {
   --user NAME          systemd 运行用户（默认：sudo 调用者）
   --npm-registry URL   npm 镜像（如 https://registry.npmmirror.com）
   --skip-deps          跳过 Node/nginx 自动安装（缺失时报错退出）
+  --tls-domain HOST    启用 HTTPS 同源站点（域名或 IP）；投屏采集需要
+                       （需证书已存在，见 --tls-cert/--tls-key）
+  --tls-cert PATH      证书 fullchain 路径
+                       （默认 /etc/letsencrypt/live/<HOST>/fullchain.pem）
+  --tls-key PATH       证书私钥路径
+                       （默认 /etc/letsencrypt/live/<HOST>/privkey.pem）
   -h, --help           显示本帮助
 EOF
 }
@@ -47,6 +67,9 @@ while [[ $# -gt 0 ]]; do
     --user)         RUN_USER="${2:?--user 需要参数}"; shift 2 ;;
     --npm-registry) NPM_REGISTRY="${2:?--npm-registry 需要参数}"; shift 2 ;;
     --skip-deps)    SKIP_DEPS=1; shift ;;
+    --tls-domain)   TLS_DOMAIN="${2:?--tls-domain 需要参数}"; shift 2 ;;
+    --tls-cert)     TLS_CERT="${2:?--tls-cert 需要参数}"; shift 2 ;;
+    --tls-key)      TLS_KEY="${2:?--tls-key 需要参数}"; shift 2 ;;
     -h|--help)      usage; exit 0 ;;
     -*)             usage; die "未知参数: $1" ;;
     *)              [[ -z "$TAR_PATH" ]] || die "只能指定一个部署包"; TAR_PATH="$1"; shift ;;
@@ -60,6 +83,9 @@ done
 [[ -n "$TAR_PATH" ]] || { usage; die '缺少部署包参数'; }
 [[ -f "$TAR_PATH" ]] || die "部署包不存在: $TAR_PATH"
 [[ "$PORT" =~ ^[0-9]+$ ]] && (( PORT >= 1 && PORT <= 65535 )) || die "--port 必须是 1-65535 的整数"
+if [[ -n "$TLS_CERT" || -n "$TLS_KEY" ]] && [[ -z "$TLS_DOMAIN" ]]; then
+  die '--tls-cert/--tls-key 需与 --tls-domain 一起使用'
+fi
 
 if [[ -z "$RUN_USER" ]]; then
   RUN_USER="${SUDO_USER:-root}"
@@ -69,6 +95,11 @@ id "$RUN_USER" >/dev/null 2>&1 || die "用户不存在: $RUN_USER"
 log "安装目录 : $APP_DIR"
 log "服务端口 : $PORT"
 log "运行用户 : $RUN_USER"
+if [[ -n "$TLS_DOMAIN" ]]; then
+  log "站点模式 : HTTPS（$TLS_DOMAIN / :443 + /socket.io/ 同源反代）"
+else
+  log "站点模式 : HTTP（直连 IP + 端口）"
+fi
 
 # ---------------------------------------------------------------------------
 # 1. 依赖（Node 20 LTS / nginx）
@@ -152,11 +183,27 @@ systemctl restart wb-realtime.service
 log 'wb-realtime 服务已启动'
 
 # ---------------------------------------------------------------------------
-# 5. nginx 站点（Web 静态站）
+# 5. nginx 站点（Web 静态站；可选 HTTPS 同源）
 # ---------------------------------------------------------------------------
-log '配置 nginx 站点（whiteboard.conf）...'
 SITE=/etc/nginx/sites-available/whiteboard.conf
-sed -e "s|__WB_APP_DIR__|$APP_DIR|g" "$TEMPLATES/whiteboard-web.conf" > "$SITE"
+if [[ -n "$TLS_DOMAIN" ]]; then
+  log "配置 nginx HTTPS 站点（$TLS_DOMAIN → :443，/socket.io/ → 127.0.0.1:$PORT）..."
+  [[ -n "$TLS_CERT" ]] || TLS_CERT="/etc/letsencrypt/live/$TLS_DOMAIN/fullchain.pem"
+  [[ -n "$TLS_KEY"  ]] || TLS_KEY="/etc/letsencrypt/live/$TLS_DOMAIN/privkey.pem"
+  if [[ ! -f "$TLS_CERT" || ! -f "$TLS_KEY" ]]; then
+    die "找不到证书：cert=$TLS_CERT key=$TLS_KEY。请先为 $TLS_DOMAIN 签发证书（例：apt-get install -y certbot python3-certbot-nginx; certbot --nginx -d $TLS_DOMAIN），或用 --tls-cert/--tls-key 指定自签证书路径。"
+  fi
+  mkdir -p /var/www/certbot
+  sed -e "s|__WB_APP_DIR__|$APP_DIR|g" \
+      -e "s|__WB_DOMAIN__|$TLS_DOMAIN|g" \
+      -e "s|__WB_CERT__|$TLS_CERT|g" \
+      -e "s|__WB_KEY__|$TLS_KEY|g" \
+      -e "s|__WB_PORT__|$PORT|g" \
+      "$TEMPLATES/whiteboard-web-tls.conf" > "$SITE"
+else
+  log '配置 nginx 站点（whiteboard.conf，HTTP :80）...'
+  sed -e "s|__WB_APP_DIR__|$APP_DIR|g" "$TEMPLATES/whiteboard-web.conf" > "$SITE"
+fi
 ln -sf "$SITE" /etc/nginx/sites-enabled/whiteboard.conf
 
 # Debian/Ubuntu 默认欢迎站占用 :80；仅当没有其他站点时移出（保留原文件可恢复）
@@ -177,15 +224,28 @@ if systemctl is-active --quiet nginx; then
 else
   systemctl start nginx
 fi
-log 'nginx 已就绪（静态站 → http://<本机IP>/）'
+if [[ -n "$TLS_DOMAIN" ]]; then
+  log "nginx 已就绪（静态站 → https://$TLS_DOMAIN/）"
+else
+  log 'nginx 已就绪（静态站 → http://<本机IP>/）'
+fi
 
 # ---------------------------------------------------------------------------
 # 6. 防火墙（仅当 ufw 处于启用状态）
 # ---------------------------------------------------------------------------
 if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q '^Status: active'; then
-  log "放行防火墙端口 80 与 ${PORT} ..."
-  ufw allow 80/tcp >/dev/null || true
-  ufw allow "${PORT}"/tcp >/dev/null || true
+  if [[ -n "$TLS_DOMAIN" ]]; then
+    # 443 = 页面 + WebSocket（推荐，桌面端也可经 nginx 连 wss）。
+    # 8790 = 仍放行以兼容桌面端直连；只想经 nginx 反代时可不放行。
+    log "放行防火墙端口 80/443 与 ${PORT} ..."
+    ufw allow 80/tcp >/dev/null || true
+    ufw allow 443/tcp >/dev/null || true
+    ufw allow "${PORT}"/tcp >/dev/null || true
+  else
+    log "放行防火墙端口 80 与 ${PORT} ..."
+    ufw allow 80/tcp >/dev/null || true
+    ufw allow "${PORT}"/tcp >/dev/null || true
+  fi
 fi
 
 # ---------------------------------------------------------------------------
@@ -220,20 +280,51 @@ log 'realtime 健康检查通过（/healthz）'
 server_ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
 [[ -n "$server_ip" ]] || server_ip='<服务器IP>'
 
+if [[ -n "$TLS_DOMAIN" ]]; then
+  web_url="https://${TLS_DOMAIN}/"
+  realtime_hint="https://${TLS_DOMAIN}/socket.io/（nginx 反代 → 127.0.0.1:${PORT}）"
+  web_endpoint="https://${TLS_DOMAIN}"
+  desktop_hint="https://${TLS_DOMAIN}（经 nginx）或 http://${server_ip}:${PORT}（直连）"
+else
+  web_url="http://${server_ip}/"
+  realtime_hint="http://${server_ip}:${PORT}   （健康检查路径 /healthz）"
+  web_endpoint="http://${server_ip}:${PORT}"
+  desktop_hint="http://${server_ip}:${PORT}"
+fi
+
 cat <<EOF
 
 ============================================================================
  部署完成
 
-   Web 应用      http://${server_ip}/
-   协同服务      http://${server_ip}:${PORT}   （健康检查路径 /healthz）
+   Web 应用      ${web_url}
+   协同服务      ${realtime_hint}
    服务状态      systemctl status wb-realtime
    实时日志      journalctl -u wb-realtime -f
 
-   桌面端        「设置 → 协作服务器地址」填 http://${server_ip}:${PORT}
-   Web 端        已在构建时注入（WB_REALTIME_ENDPOINT=http://${server_ip}:${PORT}）
+   桌面端        「设置 → 协作服务器地址」填 ${desktop_hint}
+   Web 端        已在构建时注入（WB_REALTIME_ENDPOINT=${web_endpoint}）
 
    更新部署      重新打包上传后，重跑本脚本即可（幂等）。
+EOF
+
+if [[ -n "$TLS_DOMAIN" ]]; then
+  cat <<EOF
+
+ 投屏采集：HTTPS 已启用（安全上下文）——PC 浏览器可发起「屏幕共享」。
+ 注意：手机浏览器（Android Chrome / iOS Safari）普遍不支持
+   getDisplayMedia，只能作为投屏「观看端」或改用摄像头采集。
+EOF
+else
+  cat <<EOF
+
+ 注意：当前为 HTTP 部署，浏览器不会暴露 mediaDevices，屏幕/摄像头
+   采集不可用（报 Null check operator）。启用方法：重新打包时加
+   -Scheme https，再用 --tls-domain 部署。
+EOF
+fi
+
+cat <<EOF
 
  注意：当前为匿名协同模式（无登录 token）——能访问该端口的人都可以加入
  房间。接入登录体系前请勿直接公网长期暴露；详见 deploy/README.md「安全」。

@@ -23,12 +23,22 @@ abstract final class WbWebRoutes {
   static const String homePath = '/';
 
   /// 编辑页路径（带白板 id 与可选名称查询参数）。
-  static String boardPath(String boardId, {String name = ''}) {
+  ///
+  /// [cast] 为真时附带 `cast=1`（局域网投屏入口：自动开启接收）；
+  /// [castSender] 为真时附带 `castSender=1`（发送端：展示推流状态）。
+  static String boardPath(
+    String boardId, {
+    String name = '',
+    bool cast = false,
+    bool castSender = false,
+  }) {
+    final List<String> query = <String>[
+      if (name.isNotEmpty) 'name=${Uri.encodeComponent(name)}',
+      if (cast) 'cast=1',
+      if (castSender) 'castSender=1',
+    ];
     final String base = '/board/$boardId';
-    if (name.isEmpty) {
-      return base;
-    }
-    return '$base?name=${Uri.encodeComponent(name)}';
+    return query.isEmpty ? base : '$base?${query.join('&')}';
   }
 }
 
@@ -52,9 +62,11 @@ GoRouter createWebRouter({String initialLocation = WbWebRoutes.homePath}) {
             name: WbWebRoutes.boardEdit,
             builder: (BuildContext context, GoRouterState state) =>
                 BoardEditPage(
-              boardId: state.pathParameters['boardId'] ?? '',
-              boardName: state.uri.queryParameters['name'] ?? '',
-            ),
+                  boardId: state.pathParameters['boardId'] ?? '',
+                  boardName: state.uri.queryParameters['name'] ?? '',
+                  castMode: state.uri.queryParameters['cast'] == '1',
+                  castSender: state.uri.queryParameters['castSender'] == '1',
+                ),
           ),
         ],
       ),

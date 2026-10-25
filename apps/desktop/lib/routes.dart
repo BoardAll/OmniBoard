@@ -32,7 +32,20 @@ abstract final class WbRoutes {
   static const String settingsPath = '/settings';
 
   /// 编辑页路径（带白板 id）。
-  static String boardPath(String boardId) => '/board/$boardId';
+  ///
+  /// [cast]：局域网投屏入口（打开后自动开启接收）；
+  /// [castSender]：已作为发送端加入投屏（编辑页展示发送状态）。
+  static String boardPath(
+    String boardId, {
+    bool cast = false,
+    bool castSender = false,
+  }) {
+    final List<String> query = <String>[
+      if (cast) 'cast=1',
+      if (castSender) 'castSender=1',
+    ];
+    return '/board/$boardId${query.isEmpty ? '' : '?${query.join('&')}'}';
+  }
 
   /// 元素编辑页路径（带白板 id；经 `extra` 传 [WbElementEditorRequest]）。
   static String elementEditorPath(String boardId) => '/board/$boardId/editor';
@@ -60,6 +73,8 @@ GoRouter createRouter({String initialLocation = WbRoutes.homePath}) {
                 boardName: state.uri.queryParameters['name'] ?? '',
                 openFilePath:
                     extra is WbBoardOpenRequest ? extra.filePath : '',
+                castMode: state.uri.queryParameters['cast'] == '1',
+                castSender: state.uri.queryParameters['castSender'] == '1',
               );
             },
           ),

@@ -108,6 +108,12 @@ try {
         $cmake = $cmd.Source
     }
 
+    # PowerShell 5.1 在 $ErrorActionPreference='Stop' 下会把原生命令写到
+    # stderr 的内容（emcmake/cmake 的警告）升级为终止错误；成败统一由
+    # $LASTEXITCODE 判定。
+    $previousErrorActionPreference = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+
     Push-Location $repoRoot
     try {
         # --- 3) Configure via emcmake (wraps cmake with the Emscripten env) ----
@@ -155,6 +161,7 @@ try {
         exit 0
     } finally {
         Pop-Location
+        $ErrorActionPreference = $previousErrorActionPreference
     }
 } catch {
     Write-Host ("[build_wasm] ERROR: " + $_.Exception.Message) -ForegroundColor Red

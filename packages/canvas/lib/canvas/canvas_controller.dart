@@ -24,6 +24,7 @@ import '../context_editors/render3d_editor.dart';
 import '../markdown/markdown_painter.dart';
 import 'canvas_image_cache.dart';
 import 'canvas_model.dart';
+import 'shape_recognition.dart';
 import 'stroke_style.dart';
 import 'canvas_store.dart';
 import 'wb3d_projection.dart';
@@ -534,6 +535,10 @@ class WbCanvasController extends ChangeNotifier {
   int _highlightColor = WbCanvasPalette.highlightColor;
   WbPenStyle _penStyle = WbPenStyle.pen;
   double _penWidth = WbCanvasPalette.penWidths[1];
+
+  /// 图形识别开关（画笔抬笔落定时把单笔拟合为最接近的规整图形）。
+  bool _shapeRecognitionEnabled = true;
+
   bool _spacePressed = false;
   Wb3dObjectType _render3dType = Wb3dObjectType.box;
 
@@ -560,6 +565,9 @@ class WbCanvasController extends ChangeNotifier {
 
   /// 画笔线宽。
   double get penWidth => _penWidth;
+
+  /// 图形识别开关（画笔落定时把单笔拟合为最接近的规整图形）。
+  bool get shapeRecognitionEnabled => _shapeRecognitionEnabled;
 
   /// 空格键是否按下（临时平移）。
   bool get spacePressed => _spacePressed;
@@ -644,6 +652,15 @@ class WbCanvasController extends ChangeNotifier {
       return;
     }
     _penWidth = width;
+    notifyListeners();
+  }
+
+  /// 设置图形识别开关。
+  void setShapeRecognitionEnabled(bool enabled) {
+    if (_shapeRecognitionEnabled == enabled) {
+      return;
+    }
+    _shapeRecognitionEnabled = enabled;
     notifyListeners();
   }
 
@@ -2133,11 +2150,16 @@ class WbCanvasController extends ChangeNotifier {
       return;
     }
     final bool highlight = _tool == WbCanvasTool.highlighter;
-    // Douglas-Peucker 抽稀（落定前；世界坐标亚像素公差）——与增量
-    // 预览的原始点位无关，终态元素点集更紧凑。
-    final List<Offset> simplified =
-        _simplifyStroke(points, strokeSimplifyTolerance);
-    final Rect bounds = _strokeBounds(simplified);
+    // 图形识别（落定前；荧光笔除外）：把单笔拟合为最接近的规整图形；
+    // 未命中时退回 Douglas-Peucker 抽稀（世界坐标亚像素公差）——与
+    // 增量预览的原始点位无关，终态元素点集更紧凑。
+    final WbShapeFit? fit = _shapeRecognitionEnabled && !highlight
+        ? WbShapeRecognizer.recognize(points)
+        : null;
+    final List<Offset> finalPoints = fit != null
+        ? fit.points
+        : _simplifyStroke(points, strokeSimplifyTolerance);
+    final Rect bounds = _strokeBounds(finalPoints);
     final WbCanvasElement element = WbCanvasElement(
       id: strokeId ?? _nextId(),
       type: WbElementKind.drawing,
@@ -2149,7 +2171,7 @@ class WbCanvasController extends ChangeNotifier {
       color: highlight ? _highlightColor : _penColor,
       strokeWidth: highlight ? 14 : _penWidth,
       penStyle: highlight ? WbPenStyle.pen.id : _penStyle.id,
-      points: List<Offset>.unmodifiable(simplified),
+      points: List<Offset>.unmodifiable(finalPoints),
     );
     _beginEdit();
     document.upsert(_pageId, element);

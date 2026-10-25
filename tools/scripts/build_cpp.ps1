@@ -102,6 +102,12 @@ try {
     Write-Host "[build_cpp] cmake      : $cmake"
     Write-Host "[build_cpp] preset     : $Preset ($Config)"
 
+    # PowerShell 5.1 在 $ErrorActionPreference='Stop' 下会把原生命令写到
+    # stderr 的内容（CMake/CTest 的警告就走 stderr）升级为终止错误。
+    # 调用外部构建工具期间降为 Continue，成功与否统一由 $LASTEXITCODE 判定。
+    $previousErrorActionPreference = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+
     Push-Location $repoRoot
     try {
         # --- 1) Configure -----------------------------------------------------
@@ -145,6 +151,7 @@ try {
         }
     } finally {
         Pop-Location
+        $ErrorActionPreference = $previousErrorActionPreference
     }
 
     # --- Report the produced DLL (multi-config: bin\<Config>; single: bin\) ----

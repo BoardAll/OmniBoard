@@ -214,7 +214,10 @@ void main() {
       final List<WbCanvasCommitBatch> batches = <WbCanvasCommitBatch>[];
       controller
         ..onLocalCommit = batches.add
-        ..setTool(WbCanvasTool.pen);
+        ..setTool(WbCanvasTool.pen)
+        // 本用例锁定 DP 抽稀语义：关闭图形识别，避免近直线被吸附为
+        // 精确直线后端点微移（识别路径见 shape_recognition_test.dart）。
+        ..setShapeRecognitionEnabled(false);
 
       controller.handlePointerDown(1, Offset.zero, shift: false);
       controller.handlePointerMove(1, const Offset(10, 0.3));

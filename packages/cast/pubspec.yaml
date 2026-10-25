@@ -1,0 +1,30 @@
+name: whiteboard_cast
+description: Whiteboard LAN cast — 4-digit cast rooms over the existing realtime service and WebRTC media.
+publish_to: none
+version: 1.0.0
+
+environment:
+  sdk: '>=3.3.0 <4.0.0'
+  flutter: '>=3.19.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  whiteboard_theme:
+    path: ../theme
+  whiteboard_icons:
+    path: ../icons
+  whiteboard_ui_kit:
+    path: ../ui_kit
+  # Socket.IO client (pure Dart; VM + Web)。cast 信令走既有 realtime 服务的 /cast
+  # namespace，不复用 C++ 侧 board 专用传输（避免为投屏扩展 FFI 符号表）。
+  socket_io_client: ^3.1.6
+  # WebRTC 媒体面（Windows / Web / Android / iOS / macOS / Linux）。
+  flutter_webrtc: ^1.6.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:

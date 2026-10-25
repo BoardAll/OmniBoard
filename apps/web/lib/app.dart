@@ -4,6 +4,7 @@ library;
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+import 'package:whiteboard_cast/cast.dart';
 
 import 'routes.dart';
 import 'services/realtime_service.dart';
@@ -22,6 +23,7 @@ class WhiteboardWebApp extends StatefulWidget {
     this.themeState,
     this.coreService,
     this.realtimeService,
+    this.castController,
   });
 
   /// 路由（缺省 [createWebRouter]）。
@@ -36,6 +38,9 @@ class WhiteboardWebApp extends StatefulWidget {
   /// W1 实时协作服务（缺省自建；编辑页连接 / 参与者面板使用）。
   final WbRealtimeService? realtimeService;
 
+  /// 局域网投屏控制器（缺省自建；信令复用 realtime `/cast`，媒体 P2P）。
+  final WbCastController? castController;
+
   @override
   State<WhiteboardWebApp> createState() => _WhiteboardWebAppState();
 }
@@ -47,6 +52,11 @@ class _WhiteboardWebAppState extends State<WhiteboardWebApp> {
       widget.coreService ?? WbCoreService();
   late final WbRealtimeService _realtimeService =
       widget.realtimeService ?? WbRealtimeService();
+  /// 投屏服务地址与协作服务同源（Web 为编译期注入，无运行时设置页）。
+  late final WbCastController _castController = widget.castController ??
+      WbCastController(
+        config: const WbCastConfig(endpoint: kWbRealtimeEndpoint),
+      );
   late final GoRouter _router = widget.router ?? createWebRouter();
 
   @override
@@ -60,6 +70,9 @@ class _WhiteboardWebAppState extends State<WhiteboardWebApp> {
     if (widget.realtimeService == null) {
       _realtimeService.dispose();
     }
+    if (widget.castController == null) {
+      _castController.dispose();
+    }
     super.dispose();
   }
 
@@ -70,6 +83,7 @@ class _WhiteboardWebAppState extends State<WhiteboardWebApp> {
         ChangeNotifierProvider<WbWebThemeState>.value(value: _themeState),
         ChangeNotifierProvider<WbCoreService>.value(value: _coreService),
         ChangeNotifierProvider<WbRealtimeService>.value(value: _realtimeService),
+        ChangeNotifierProvider<WbCastController>.value(value: _castController),
       ],
       child: Consumer<WbWebThemeState>(
         builder: (BuildContext context, WbWebThemeState theme, Widget? child) {

@@ -3,6 +3,8 @@
  *
  * - express：`GET /healthz` → `{ok:true}`；
  * - Socket.IO：namespace `/board`（连接认证 + M1/M2/M3 事件集，见 rooms.ts / interactive.ts / checkpoint.ts）；
+ * - Socket.IO：namespace `/cast`（局域网投屏四位房间号 + SDP/ICE 路由，见 cast.ts / castStore.ts；
+ *   与 `/board` 同进程 / 同端口 / 同鉴权，媒体不过服务端）；
  * - op 环形日志 / 去重 / 水位 / 权限 / 软锁 / 审计：见 oplog.ts / token.ts / audit.ts / roomStore.ts；
  * - 端口：`PORT || 8790`（§7 / D5）。
  *
@@ -23,6 +25,9 @@ import { Server } from 'socket.io';
 import { buildAuditEntry, createAuditSinkFromEnv, type AuditSink } from './audit.js';
 import { DEFAULT_OPLOG_CAPACITY } from './oplog.js';
 import { attachBoardNamespace } from './rooms.js';
+import { attachCastNamespace } from './cast.js';
+import { CastRoomStore } from './castStore.js';
+import type { CastServer } from './castTypes.js';
 import {
   BoardRoomStore,
   DEFAULT_CHECKPOINT_MAX_PAYLOAD_BYTES,
@@ -59,6 +64,18 @@ export interface RealtimeServerOptions {
   checkpointTimeoutMs?: number;
   /** M3：checkpoint payload 上限（默认 10MB / WB_CHECKPOINT_MAX_PAYLOAD_BYTES；测试可缩小）。 */
   checkpointMaxPayloadBytes?: number;
+  /** cast：默认房间有效期（默认 30min / WB_CAST_ROOM_TTL_MS）。 */
+  castRoomTtlMs?: number;
+  /** cast：有效期裁剪下限（默认 60s；测试 / 私有部署可放宽）。 */
+  castRoomTtlMinMs?: number;
+  /** cast：有效期裁剪上限（默认 2h）。 */
+  castRoomTtlMaxMs?: number;
+  /** cast：接收端断线宽限（默认 30s / WB_CAST_RECEIVER_GRACE_MS）。 */
+  castReceiverGraceMs?: number;
+  /** cast：发送端断线宽限（默认 15s / WB_CAST_SENDER_GRACE_MS）。 */
+  castSenderGraceMs?: number;
+  /** cast：单房间最大路数上限（默认 4 / WB_CAST_MAX_SENDERS_LIMIT）。 */
+  castMaxSendersLimit?: number;
 }
 
 export interface RealtimeServer {
@@ -67,6 +84,8 @@ export interface RealtimeServer {
   io: Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, BoardSocketData>;
   /** 房间存储（参与者 / op 日志 / 软锁 / 模式 / checkpoint / host 转移 / 清理定时器）。 */
   rooms: BoardRoomStore;
+  /** 投屏房间存储（四位码 / 发送端席位 / 有效期；与白板房间完全独立）。 */
+  castRooms: CastRoomStore;
   /** 审计 sink（实际使用的那一个）。 */
   audit: AuditSink;
 }
@@ -128,7 +147,19 @@ export function createRealtimeApp(options: RealtimeServerOptions = {}): Realtime
     cors: { origin: '*' },
   });
   attachBoardNamespace(io, { env, audit, rooms });
-  return { app, httpServer, io, rooms, audit };
+  // cast：同一 Socket.IO 实例挂第二个 namespace（事件/类型独立，服务与端口复用）。
+  const castRooms = new CastRoomStore({
+    roomTtlMs: options.castRoomTtlMs ?? readPositiveIntEnv(env, 'WB_CAST_ROOM_TTL_MS') ?? undefined,
+    minRoomTtlMs: options.castRoomTtlMinMs,
+    maxRoomTtlMs: options.castRoomTtlMaxMs,
+    receiverGraceMs:
+      options.castReceiverGraceMs ?? readPositiveIntEnv(env, 'WB_CAST_RECEIVER_GRACE_MS') ?? undefined,
+    senderGraceMs: options.castSenderGraceMs ?? readPositiveIntEnv(env, 'WB_CAST_SENDER_GRACE_MS') ?? undefined,
+    maxSendersLimit:
+      options.castMaxSendersLimit ?? readPositiveIntEnv(env, 'WB_CAST_MAX_SENDERS_LIMIT') ?? undefined,
+  });
+  attachCastNamespace(io as unknown as CastServer, { env, audit, rooms: castRooms });
+  return { app, httpServer, io, rooms, castRooms, audit };
 }
 
 /** 解析监听端口（`PORT || 8790`）；显式配置非法时抛错。 */
@@ -166,6 +197,7 @@ export async function startRealtimeServer(
         // socket.io 的 close() 会顺带关闭底层 HTTP server；但 httpServer.close() 会等待残留连接
         // （如客户端 keep-alive）——主动断开全部连接，保证关闭及时（Node >= 18.2）。
         instance.rooms.dispose();
+        instance.castRooms.dispose();
         instance.io.close(() => resolve());
         instance.httpServer.closeAllConnections();
       });

@@ -4,14 +4,19 @@
 /// 持久化 / 服务端同步待接入。
 library;
 
+import 'dart:async';
+
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+import 'package:whiteboard_cast/cast.dart';
 import 'package:whiteboard_icons/icons.dart';
 import 'package:whiteboard_theme/theme.dart';
 import 'package:whiteboard_ui_kit/ui_kit.dart';
 
 import '../routes.dart';
+import '../services/realtime_service.dart';
 import '../state/theme_state.dart';
 import '../widgets/core_status_chip.dart';
 
@@ -61,6 +66,49 @@ class _BoardListPageState extends State<BoardListPage> {
     context.push(WbWebRoutes.boardPath(board.id, name: board.name));
   }
 
+  /// 首页「白板」入口：继续最近白板，没有则新建；默认不自动开启投屏。
+  void _openWhiteboard() {
+    if (_boards.isNotEmpty) {
+      _openBoard(_boards.first);
+      return;
+    }
+    _createBoard();
+  }
+
+  /// 首页「局域网投屏」入口：打开同一套白板并自动开启投屏接收。
+  void _openCastBoard() {
+    final String id = 'board-cast-${DateTime.now().millisecondsSinceEpoch}';
+    final WbWebBoard board = WbWebBoard(
+      id: id,
+      name: '投屏白板',
+      updatedAt: DateTime.now(),
+    );
+    setState(() => _boards.insert(0, board));
+    context.push(WbWebRoutes.boardPath(id, cast: true));
+  }
+
+  /// 发送端：输入四位投屏码加入接收端房间，并在白板内展示推流状态。
+  Future<void> _joinCastAsSender() async {
+    final WbCastController cast = context.read<WbCastController>();
+    final bool? joined = await WbCastJoinDialog.show(
+      context,
+      cast,
+      deviceName: '浏览器设备',
+      endpoint: kWbRealtimeEndpoint,
+    );
+    if (!mounted || joined != true) {
+      return;
+    }
+    final String id = 'board-cast-${DateTime.now().millisecondsSinceEpoch}';
+    final WbWebBoard board = WbWebBoard(
+      id: id,
+      name: '投屏发送端',
+      updatedAt: DateTime.now(),
+    );
+    setState(() => _boards.insert(0, board));
+    unawaited(context.push(WbWebRoutes.boardPath(id, castSender: true)));
+  }
+
   @override
   Widget build(BuildContext context) {
     final WbThemeColors colors = context.wbColors;
@@ -81,16 +129,80 @@ class _BoardListPageState extends State<BoardListPage> {
       ),
       body: LayoutBuilder(
         builder: (BuildContext context, BoxConstraints constraints) {
-          if (_boards.isEmpty) {
-            return const _EmptyBoardsHint();
-          }
-          // 响应式：宽屏（≥600）网格，窄屏列表。
-          if (constraints.maxWidth >= 600) {
-            return _buildGrid();
-          }
-          return _buildList();
+          final bool wide = constraints.maxWidth >= 780;
+          return Column(
+            children: <Widget>[
+              // 两个主入口：白板（默认不开启投屏）/ 局域网投屏（自动接收）。
+              Padding(
+                padding: const EdgeInsets.fromLTRB(24, 16, 24, 0),
+                child: _buildEntries(wide),
+              ),
+              Expanded(
+                child: _boards.isEmpty
+                    ? const _EmptyBoardsHint()
+                    : (constraints.maxWidth >= 600
+                        ? _buildGrid()
+                        : _buildList()),
+              ),
+            ],
+          );
         },
       ),
+    );
+  }
+
+  /// 首页双卡片入口（宽屏左右并排，窄屏上下排列）。
+  Widget _buildEntries(bool wide) {
+    final Widget whiteboard = _HomeEntryCard(
+      icon: LinearIcons.board,
+      title: '白板',
+      subtitle: '打开普通白板；默认不自动开启投屏接收',
+      accent: context.wbColors.primary,
+      onTap: _openWhiteboard,
+    );
+    final Widget cast = _HomeEntryCard(
+      icon: LinearIcons.cloud,
+      title: '局域网投屏',
+      subtitle: '打开同一套白板并自动开启接收；投屏码即房间号（发送端需 HTTPS / localhost）',
+      accent: const Color(0xFF12B76A),
+      onTap: _openCastBoard,
+      footer: Align(
+        alignment: Alignment.centerLeft,
+        child: OutlinedButton.icon(
+          onPressed: () => unawaited(_joinCastAsSender()),
+          icon: const Icon(Icons.keyboard_alt_outlined, size: 15),
+          label: const Text('输入投屏码'),
+          style: OutlinedButton.styleFrom(
+            foregroundColor: context.wbColors.primary,
+            side: BorderSide(
+              color: context.wbColors.primary.withValues(alpha: 0.35),
+            ),
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            minimumSize: const Size(0, 30),
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            textStyle: const TextStyle(fontSize: 12),
+          ),
+        ),
+      ),
+    );
+    if (wide) {
+      return SizedBox(
+        height: 200,
+        child: Row(
+          children: <Widget>[
+            Expanded(child: whiteboard),
+            const SizedBox(width: 16),
+            Expanded(child: cast),
+          ],
+        ),
+      );
+    }
+    return Column(
+      children: <Widget>[
+        SizedBox(height: 170, child: whiteboard),
+        const SizedBox(height: 12),
+        SizedBox(height: 190, child: cast),
+      ],
     );
   }
 
@@ -247,6 +359,117 @@ class _ThemeMenu extends StatelessWidget {
             ),
           ),
       ],
+    );
+  }
+}
+
+/// 首页主入口卡片（白板 / 局域网投屏）：悬停变色 + 点击进入。
+class _HomeEntryCard extends StatefulWidget {
+  const _HomeEntryCard({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.accent,
+    required this.onTap,
+    this.footer,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final Color accent;
+  final VoidCallback onTap;
+  final Widget? footer;
+
+  @override
+  State<_HomeEntryCard> createState() => _HomeEntryCardState();
+}
+
+class _HomeEntryCardState extends State<_HomeEntryCard> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final WbThemeColors colors = context.wbColors;
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (PointerEnterEvent _) => setState(() => _hovered = true),
+      onExit: (PointerExitEvent _) => setState(() => _hovered = false),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 140),
+        decoration: BoxDecoration(
+          color: _hovered
+              ? widget.accent.withValues(alpha: 0.06)
+              : colors.cardBackground,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(
+            color: _hovered
+                ? widget.accent.withValues(alpha: 0.55)
+                : colors.cardBorder,
+            width: _hovered ? 1.4 : 1,
+          ),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: widget.onTap,
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Row(
+                    children: <Widget>[
+                      Container(
+                        width: 44,
+                        height: 44,
+                        decoration: BoxDecoration(
+                          color: widget.accent.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Icon(
+                          widget.icon,
+                          size: 22,
+                          color: widget.accent,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          widget.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 19,
+                            fontWeight: FontWeight.w600,
+                            color: colors.icon,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    widget.subtitle,
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 12.5,
+                      height: 1.45,
+                      color: colors.icon.withValues(alpha: 0.78),
+                    ),
+                  ),
+                  if (widget.footer != null) ...<Widget>[
+                    const Spacer(),
+                    widget.footer!,
+                  ],
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

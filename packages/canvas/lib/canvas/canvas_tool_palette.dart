@@ -439,6 +439,18 @@ class WbCanvasToolPalette extends StatelessWidget {
                   active: controller.penStyle == style,
                   onTap: () => controller.setPenStyle(style),
                 ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                child: Container(width: 1, height: 18, color: colors.border),
+              ),
+              _StyleChip(
+                key: const ValueKey<String>('wb-canvas-shape-recognition'),
+                label: '图形识别',
+                active: controller.shapeRecognitionEnabled,
+                onTap: () => controller.setShapeRecognitionEnabled(
+                  !controller.shapeRecognitionEnabled,
+                ),
+              ),
             ],
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 8),

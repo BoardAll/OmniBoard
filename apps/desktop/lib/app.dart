@@ -11,6 +11,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import 'package:whiteboard_canvas/services/canvas_engine.dart';
+import 'package:whiteboard_cast/cast.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'routes.dart';
@@ -131,6 +132,20 @@ class _WhiteboardAppState extends State<WhiteboardApp> with WindowListener {
         Provider<WbAppExitService>.value(value: _exitService),
         ChangeNotifierProvider<WbThemeState>.value(value: widget.themeState),
         ChangeNotifierProvider<WbCollabService>.value(value: widget.collabService),
+        // 局域网投屏：全局单例（投屏码 / 视频浮层 / 发送端会话在页面间共享）。
+        ChangeNotifierProvider<WbCastController>(
+          create: (BuildContext context) {
+            final String configured =
+                widget.settingsStore?.syncServerUrl.trim() ?? '';
+            return WbCastController(
+              config: WbCastConfig(
+                endpoint: configured.isEmpty
+                    ? WbCastConfig.defaultEndpoint
+                    : configured,
+              ),
+            );
+          },
+        ),
         if (widget.settingsStore != null)
           Provider<WbSettingsStore>.value(value: widget.settingsStore!),
         if (widget.boardFileService != null)

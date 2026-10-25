@@ -41,6 +41,10 @@ function(APPLY_STANDARD_SETTINGS TARGET)
   target_compile_features(${TARGET} PUBLIC cxx_std_17)
   target_compile_options(${TARGET} PRIVATE /W4 /WX /wd"4100")
   target_compile_options(${TARGET} PRIVATE /EHsc)
+  # Flutter 插件（如 flutter_webrtc）的源码是 UTF-8 无 BOM，MSVC 默认按系统
+  # ANSI 代码页（中文环境为 936）解析会触发 C4819，在 /WX 下升级为错误
+  # C2220。显式 /utf-8 让源字符集与执行字符集都按 UTF-8 处理。
+  target_compile_options(${TARGET} PRIVATE /utf-8)
   target_compile_definitions(${TARGET} PRIVATE "_HAS_EXCEPTIONS=0")
   target_compile_definitions(${TARGET} PRIVATE "$<$<CONFIG:Debug>:_DEBUG>")
 endfunction()

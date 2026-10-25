@@ -206,11 +206,17 @@ try {
 
     Write-Host "[build_flutter] Running: flutter $($buildArgs -join ' ')"
     Push-Location $appDir
+    # PowerShell 5.1 在 $ErrorActionPreference='Stop' 下会把 flutter 写到
+    # stderr 的信息/警告（如镜像下载提示）升级为终止错误；构建成败统一由
+    # $LASTEXITCODE 判定。
+    $previousErrorActionPreference = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
     try {
         & $flutter @buildArgs
         if ($LASTEXITCODE -ne 0) { throw "flutter build failed (exit $LASTEXITCODE)." }
     } finally {
         Pop-Location
+        $ErrorActionPreference = $previousErrorActionPreference
     }
 
     # --- Verify artifacts -----------------------------------------------------
